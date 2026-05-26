@@ -1,4 +1,5 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+export const WS_BASE = BASE.replace(/^http/, "ws"); // http→ws, https→wss
 
 // ---- single-player types ----------------------------------------------------
 

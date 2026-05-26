@@ -7,77 +7,10 @@ import {
   getRoom, joinRoom, startRound, submitRoomGuess, nextRound,
 } from "@/lib/api";
 import { getRoomToken, setRoomToken, clearRoomToken } from "@/lib/tokens";
+import { useRoomSocket } from "@/lib/useRoomSocket";
 import Game, { ScoredGuess } from "@/components/Game";
 import Scoreboard from "@/components/Scoreboard";
 import FinishModal from "@/components/FinishModal";
-
-// ---- polling hook -----------------------------------------------------------
-
-// enabled=false keeps the hook idle (isLoading=true, error=null) until we know
-// the token. This prevents a transient 404 error from flashing on screen before
-// the localStorage read completes.
-function useRoomPolling(code: string, token: string | null, enabled: boolean) {
-  const [room, setRoom] = useState<RoomState | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mountedRef = useRef(true);
-  const tokenRef = useRef(token);
-  tokenRef.current = token;
-
-  const poll = useCallback(async () => {
-    if (!mountedRef.current) return;
-    if (document.visibilityState !== "visible") {
-      timerRef.current = setTimeout(poll, 1500);
-      return;
-    }
-    try {
-      const state = await getRoom(code, tokenRef.current);
-      if (!mountedRef.current) return;
-      setRoom(state);
-      setError(null);
-    } catch (e) {
-      if (!mountedRef.current) return;
-      setError(e instanceof ApiError ? e.code : "network");
-    } finally {
-      if (mountedRef.current) {
-        timerRef.current = setTimeout(poll, 1500);
-      }
-    }
-  }, [code]);
-
-  const refetch = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    poll();
-  }, [poll]);
-
-  useEffect(() => {
-    if (!enabled) return; // wait until tokenReady before polling
-
-    mountedRef.current = true;
-    setIsLoading(true);
-
-    poll().then(() => {
-      if (mountedRef.current) setIsLoading(false);
-    });
-
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        if (timerRef.current) clearTimeout(timerRef.current);
-        poll();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
-    return () => {
-      mountedRef.current = false;
-      if (timerRef.current) clearTimeout(timerRef.current);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [poll, enabled]);
-
-  return { room, setRoom, error, isLoading, refetch };
-}
 
 // ---- main component ---------------------------------------------------------
 
@@ -95,7 +28,21 @@ export default function RoomPage() {
     setTokenReady(true);
   }, [code]);
 
-  const { room, setRoom, error, isLoading } = useRoomPolling(code, token, tokenReady);
+  // WebSocket connection — only opens once token is available
+  const { room, isConnected, isReconnecting, error: wsError, applyServerResponse } =
+    useRoomSocket(code, tokenReady ? token : null);
+
+  // Initial HTTP fetch: gives us state before the WS handshake completes.
+  const [initialLoading, setInitialLoading] = useState(true);
+  useEffect(() => {
+    if (!tokenReady) return;
+    if (!token) { setInitialLoading(false); return; }
+    getRoom(code, token)
+      .then(applyServerResponse)
+      .catch(() => { /* WS error handling covers failures */ })
+      .finally(() => setInitialLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tokenReady, token, code]); // applyServerResponse is stable (useCallback)
 
   // Join form state
   const [joinName, setJoinName] = useState("");
@@ -105,6 +52,11 @@ export default function RoomPage() {
   // Action loading states
   const [startLoading, setStartLoading] = useState(false);
   const [nextRoundLoading, setNextRoundLoading] = useState(false);
+
+  // Holds the room state from the most recent successful guess HTTP response.
+  // Applied via onGuessConfirmed (called in the same React batch as setCurrentLetters)
+  // to avoid a one-frame flash where the scored row and the active input row coexist.
+  const pendingGuessState = useRef<RoomState | null>(null);
 
   // Modal: show when myPlayer is done (solved/out)
   const [modalDismissed, setModalDismissed] = useState(false);
@@ -120,12 +72,11 @@ export default function RoomPage() {
 
   // ---- derived state --------------------------------------------------------
 
-  const myPlayer: RoomPlayer | undefined =
-    room?.players.find((p) => p.isYou);
+  const myPlayer: RoomPlayer | undefined = room?.players.find((p) => p.isYou);
 
   const hasToken = token !== null;
   // Token is stale if we have one but no player has isYou=true after first load
-  const tokenStale = !isLoading && hasToken && room !== null && myPlayer === undefined;
+  const tokenStale = !initialLoading && hasToken && room !== null && myPlayer === undefined;
 
   useEffect(() => {
     if (tokenStale) {
@@ -133,6 +84,13 @@ export default function RoomPage() {
       setToken(null);
     }
   }, [tokenStale, code]);
+
+  // Redirect when the WS gives up because the room no longer exists.
+  useEffect(() => {
+    if (wsError === "not_found") {
+      router.push("/?roomGone=1");
+    }
+  }, [wsError, router]);
 
   const showModal =
     !modalDismissed &&
@@ -149,7 +107,7 @@ export default function RoomPage() {
       const res = await joinRoom(code, joinName.trim());
       setRoomToken(code, res.playerToken);
       setToken(res.playerToken);
-      setRoom(res.state);
+      applyServerResponse(res.state);
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.code === "not_found") setJoinError("Room not found.");
@@ -170,8 +128,8 @@ export default function RoomPage() {
     setStartLoading(true);
     try {
       const state = await startRound(code, token);
-      setRoom(state);
-    } catch { /* polling will pick up changes */ }
+      applyServerResponse(state);
+    } catch { /* WS broadcast will deliver the update */ }
     finally { setStartLoading(false); }
   }
 
@@ -180,8 +138,8 @@ export default function RoomPage() {
     setNextRoundLoading(true);
     try {
       const state = await nextRound(code, token);
-      setRoom(state);
-    } catch { /* polling will pick up changes */ }
+      applyServerResponse(state);
+    } catch { /* WS broadcast will deliver the update */ }
     finally { setNextRoundLoading(false); }
   }
 
@@ -189,7 +147,9 @@ export default function RoomPage() {
     if (!token) return;
     try {
       const state = await submitRoomGuess(code, token, guess);
-      setRoom(state);
+      // Store result; applied by handleGuessConfirmed (called by Game in the
+      // same batch as setCurrentLetters) to avoid a duplicate-row flash.
+      pendingGuessState.current = state;
     } catch (e) {
       if (e instanceof ApiError) {
         if (e.code === "not_a_word") throw new Error("Not in word list");
@@ -197,6 +157,13 @@ export default function RoomPage() {
         if (e.code === "not_found") throw new Error("Room not found");
       }
       throw new Error("Couldn't reach the server");
+    }
+  }
+
+  function handleGuessConfirmed() {
+    if (pendingGuessState.current) {
+      applyServerResponse(pendingGuessState.current);
+      pendingGuessState.current = null;
     }
   }
 
@@ -217,7 +184,7 @@ export default function RoomPage() {
   };
 
   // Not ready yet
-  if (!tokenReady || isLoading) {
+  if (!tokenReady || initialLoading) {
     return (
       <main style={{ ...pageStyle, justifyContent: "center" }}>
         <span style={{ color: "#ffffff", fontSize: 20, fontWeight: 600 }}>Loading…</span>
@@ -225,24 +192,9 @@ export default function RoomPage() {
     );
   }
 
-  // Room not found
-  if (error === "not_found") {
-    return (
-      <main style={{ ...pageStyle, justifyContent: "center", gap: 16 }}>
-        <p style={{ color: "#ffffff", fontWeight: 700, fontSize: 20 }}>Room not found</p>
-        <button onClick={() => router.push("/")} style={primaryBtn}>Back to home</button>
-      </main>
-    );
-  }
-
-  // Network error (and no cached room)
-  if (error && !room) {
-    return (
-      <main style={{ ...pageStyle, justifyContent: "center" }}>
-        <p style={{ color: "#b59f3b", fontWeight: 600 }}>Couldn't reach the server</p>
-      </main>
-    );
-  }
+  // Room permanently gone (server wiped it) — redirect effect handles navigation;
+  // render nothing while the redirect fires.
+  if (wsError === "not_found") return null;
 
   // No token → show join form
   if (!token || tokenStale) {
@@ -280,6 +232,7 @@ export default function RoomPage() {
     return (
       <main style={pageStyle}>
         <Header />
+        <ReconnectingBanner show={isReconnecting} />
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 24, width: "100%", maxWidth: 400 }}>
           <div style={{ textAlign: "center" }}>
             <p style={{ color: "#818384", fontSize: 12, letterSpacing: 2, marginBottom: 4, textTransform: "uppercase" }}>Room code</p>
@@ -336,6 +289,7 @@ export default function RoomPage() {
   return (
     <main style={pageStyle}>
       <Header />
+      <ReconnectingBanner show={isReconnecting} />
 
       {showModal && myPlayer && (
         <FinishModal
@@ -361,6 +315,7 @@ export default function RoomPage() {
             guesses={myGuesses}
             status={myStatus}
             onSubmit={handleGuessSubmit}
+            onGuessConfirmed={handleGuessConfirmed}
             disabled={myStatus !== "playing" || room.status === "finished"}
           />
         </div>
@@ -387,11 +342,16 @@ export default function RoomPage() {
           )}
         </div>
       </div>
+
+      {/* Connection dot — subtle indicator in corner when connected */}
+      {isConnected && (
+        <div style={{ position: "fixed", bottom: 12, right: 14, width: 8, height: 8, borderRadius: "50%", background: "#538d4e", opacity: 0.6 }} />
+      )}
     </main>
   );
 }
 
-// ---- shared sub-components --------------------------------------------------
+// ---- sub-components ---------------------------------------------------------
 
 function Header() {
   return (
@@ -402,6 +362,21 @@ function Header() {
     }}>
       WORDLE ROOMS
     </h1>
+  );
+}
+
+function ReconnectingBanner({ show }: { show: boolean }) {
+  if (!show) return null;
+  return (
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0,
+      background: "#b59f3b", color: "#121213",
+      textAlign: "center", padding: "8px 16px",
+      fontWeight: 700, fontSize: 13, letterSpacing: 1,
+      zIndex: 100,
+    }}>
+      RECONNECTING…
+    </div>
   );
 }
 
@@ -426,4 +401,6 @@ const inputStyle: React.CSSProperties = {
 
 const errorStyle: React.CSSProperties = {
   color: "#b59f3b", fontSize: 13, textAlign: "center", margin: 0,
+  padding: "8px 12px", background: "rgba(181,159,59,0.12)",
+  border: "1px solid rgba(181,159,59,0.35)", borderRadius: 4,
 };

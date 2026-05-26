@@ -12,6 +12,7 @@ import (
 	"github.com/placeholder/wordle-rooms/internal/api"
 	"github.com/placeholder/wordle-rooms/internal/db"
 	"github.com/placeholder/wordle-rooms/internal/game"
+	"github.com/placeholder/wordle-rooms/internal/realtime"
 	"github.com/placeholder/wordle-rooms/internal/room"
 	"github.com/placeholder/wordle-rooms/internal/words"
 )
@@ -47,7 +48,8 @@ func main() {
 
 	gameStore := game.NewStore(wordsRepo)
 	roomStore := room.NewStore(wordsRepo)
-	router := api.NewRouter(gameStore, roomStore)
+	realtimeRegistry := realtime.NewHubRegistry(roomStore)
+	router := api.NewRouter(gameStore, roomStore, realtimeRegistry)
 
 	srv := &http.Server{
 		Addr:    ":" + port,

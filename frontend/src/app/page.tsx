@@ -25,6 +25,7 @@ export default function LandingPage() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (!name.trim()) { setError("Please enter your name."); return; }
     setLoading(true);
     try {
       const res = await createRoom(name.trim());
@@ -45,6 +46,8 @@ export default function LandingPage() {
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (code.trim().length !== 4) { setError("Room code must be 4 letters."); return; }
+    if (!name.trim()) { setError("Please enter your name."); return; }
     setLoading(true);
     try {
       const upperCode = code.trim().toUpperCase();
@@ -101,7 +104,7 @@ export default function LandingPage() {
             style={inputStyle}
           />
           {error && <p style={errorStyle}>{error}</p>}
-          <button type="submit" disabled={loading || !name.trim()} style={primaryBtn}>
+          <button type="submit" disabled={loading} style={primaryBtn}>
             {loading ? "Creating…" : "Create"}
           </button>
           <button type="button" onClick={() => openPanel("none")} style={ghostBtn}>
@@ -115,11 +118,11 @@ export default function LandingPage() {
           <p style={formTitle}>Join a room</p>
           <input
             autoFocus
-            placeholder="Room code (e.g. ABCD)"
+            placeholder="ABCD"
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             maxLength={4}
-            style={{ ...inputStyle, textTransform: "uppercase", letterSpacing: 6, textAlign: "center" }}
+            style={{ ...inputStyle, textTransform: "uppercase", textAlign: "center" }}
           />
           <input
             placeholder="Your name"
@@ -129,7 +132,7 @@ export default function LandingPage() {
             style={inputStyle}
           />
           {error && <p style={errorStyle}>{error}</p>}
-          <button type="submit" disabled={loading || code.length !== 4 || !name.trim()} style={primaryBtn}>
+          <button type="submit" disabled={loading} style={primaryBtn}>
             {loading ? "Joining…" : "Join"}
           </button>
           <button type="button" onClick={() => openPanel("none")} style={ghostBtn}>
@@ -179,4 +182,6 @@ const inputStyle: React.CSSProperties = {
 
 const errorStyle: React.CSSProperties = {
   color: "#b59f3b", fontSize: 13, textAlign: "center", margin: 0,
+  padding: "8px 12px", background: "rgba(181,159,59,0.12)",
+  border: "1px solid rgba(181,159,59,0.35)", borderRadius: 4,
 };

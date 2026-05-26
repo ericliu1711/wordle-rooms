@@ -8,11 +8,13 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/placeholder/wordle-rooms/internal/game"
+	"github.com/placeholder/wordle-rooms/internal/realtime"
 	"github.com/placeholder/wordle-rooms/internal/room"
 )
 
 type roomHandler struct {
-	store *room.Store
+	store    *room.Store
+	realtime *realtime.HubRegistry
 }
 
 // ---- request helpers --------------------------------------------------------
@@ -99,6 +101,7 @@ func (h *roomHandler) joinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.realtime.BroadcastRoom(code)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"playerToken": token,
 		"state":       room.PlayerView(rm, token),
@@ -132,6 +135,7 @@ func (h *roomHandler) startRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.realtime.BroadcastRoom(code)
 	writeJSON(w, http.StatusOK, room.PlayerView(rm, token))
 }
 
@@ -157,6 +161,7 @@ func (h *roomHandler) submitGuess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.realtime.BroadcastRoom(code)
 	writeJSON(w, http.StatusOK, room.PlayerView(rm, token))
 }
 
@@ -174,5 +179,6 @@ func (h *roomHandler) nextRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.realtime.BroadcastRoom(code)
 	writeJSON(w, http.StatusOK, room.PlayerView(rm, token))
 }

@@ -188,11 +188,19 @@ export interface GameProps {
   status: GameStatus;
   /** Called when the player submits a complete word. Reject/throw to trigger shake + toast. */
   onSubmit: (guess: string) => Promise<void>;
+  /**
+   * Called in the same synchronous block as setCurrentLetters([]) after a
+   * successful submit. Lets the parent apply room-state updates in the same
+   * React batch so the scored row and the cleared input are committed together,
+   * preventing a one-frame flash where the typed word appears in both the
+   * scored row and the active input row simultaneously.
+   */
+  onGuessConfirmed?: () => void;
   /** Disable keyboard input (e.g. player is done, round over). */
   disabled?: boolean;
 }
 
-export default function Game({ instanceKey, length, maxGuesses, guesses, status, onSubmit, disabled }: GameProps) {
+export default function Game({ instanceKey, length, maxGuesses, guesses, status, onSubmit, onGuessConfirmed, disabled }: GameProps) {
   const [currentLetters, setCurrentLetters] = useState<string[]>([]);
   const [shakingRow, setShakingRow] = useState<number | null>(null);
   const [justRevealedRow, setJustRevealedRow] = useState<number | null>(null);
@@ -249,7 +257,10 @@ export default function Game({ instanceKey, length, maxGuesses, guesses, status,
 
         try {
           await onSubmit(guess);
+          // Call both state setters in the same synchronous block so React
+          // batches them into one render — prevents the duplicate-row flash.
           setCurrentLetters([]);
+          onGuessConfirmed?.();
           setTimeout(() => setJustRevealedRow(null), flipDuration);
         } catch (e) {
           setJustRevealedRow(null);
@@ -267,7 +278,7 @@ export default function Game({ instanceKey, length, maxGuesses, guesses, status,
         setCurrentLetters((prev) => [...prev, key]);
       }
     },
-    [isInputDisabled, currentLetters, length, guesses.length, onSubmit, showToast]
+    [isInputDisabled, currentLetters, length, guesses.length, onSubmit, onGuessConfirmed, showToast]
   );
 
   useEffect(() => {

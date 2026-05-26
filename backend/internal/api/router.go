@@ -1,7 +1,10 @@
 package api
 
 import (
+	"bufio"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -9,10 +12,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/placeholder/wordle-rooms/internal/game"
+	"github.com/placeholder/wordle-rooms/internal/realtime"
 	"github.com/placeholder/wordle-rooms/internal/room"
 )
 
-func NewRouter(gameStore *game.Store, roomStore *room.Store) http.Handler {
+func NewRouter(gameStore *game.Store, roomStore *room.Store, registry *realtime.HubRegistry) http.Handler {
 	corsOrigin := os.Getenv("CORS_ORIGIN")
 	if corsOrigin == "" {
 		corsOrigin = "http://localhost:3000"
@@ -35,13 +39,17 @@ func NewRouter(gameStore *game.Store, roomStore *room.Store) http.Handler {
 	r.Post("/api/games/{gameId}/guesses", gh.submitGuess)
 
 	// Multiplayer room routes (Phase 4)
-	rh := &roomHandler{store: roomStore}
+	rh := &roomHandler{store: roomStore, realtime: registry}
 	r.Post("/api/rooms", rh.createRoom)
 	r.Post("/api/rooms/{code}/join", rh.joinRoom)
 	r.Get("/api/rooms/{code}", rh.getRoom)
 	r.Post("/api/rooms/{code}/start", rh.startRound)
 	r.Post("/api/rooms/{code}/guesses", rh.submitGuess)
 	r.Post("/api/rooms/{code}/next-round", rh.nextRound)
+
+	// WebSocket upgrade (Phase 5)
+	wh := &realtimeHandler{registry: registry, rooms: roomStore}
+	r.Get("/api/rooms/{code}/ws", wh.wsUpgrade)
 
 	r.Get("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -72,4 +80,14 @@ type statusRecorder struct {
 func (sr *statusRecorder) WriteHeader(code int) {
 	sr.status = code
 	sr.ResponseWriter.WriteHeader(code)
+}
+
+// Hijack forwards to the underlying ResponseWriter so that gorilla/websocket
+// can take over the TCP connection for the WS upgrade (HTTP 101).
+func (sr *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := sr.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
+	}
+	return h.Hijack()
 }
