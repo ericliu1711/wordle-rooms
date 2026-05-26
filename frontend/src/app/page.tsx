@@ -1,69 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ApiError, GameState, createGame, getGame, submitGuess } from "@/lib/api";
 
-const TARGET_WORD = "REACT";
-const MAX_GUESSES = 6;
-const WORD_LENGTH = 5;
+// ---- types ------------------------------------------------------------------
 
 type TileState = "empty" | "filled" | "correct" | "present" | "absent";
+type KeyState = "correct" | "present" | "absent" | "unused";
 
 interface TileData {
   letter: string;
   state: TileState;
 }
 
-type KeyState = "correct" | "present" | "absent" | "unused";
+// ---- constants --------------------------------------------------------------
 
-// Scoring algorithm — two-pass to handle duplicate letters correctly.
-//
-// Test cases (c=correct/green, p=present/yellow, a=absent/gray):
-//   target=ALLEY guess=LLAMA → [p, c, p, a, a]
-//     Pass1: pos1 L=L→green. Pass2: pos0 L→L(2) yellow, pos2 A→A(0) yellow, pos3 M→none, pos4 A→none(A consumed)
-//   target=ALLEY guess=LULLS → [p, a, c, a, a]
-//     Pass1: pos2 L=L→green. Pass2: pos0 L→L(1) yellow, pos1 U→none, pos3 L→none(both Ls consumed), pos4 S→none
-//   target=REACT guess=RRACE → [c, a, c, c, p]
-//     Pass1: R(0)✓, A(2)✓, C(3)✓. Pass2: pos1 R→none(R consumed), pos4 E→E(1) yellow
-//   target=REACT guess=CARET → [p, p, p, p, c]
-//     Pass1: T(4)✓. Pass2: C→C(3), A→A(2), R→R(0), E→E(1) all yellow
-function scoreGuess(
-  guess: string,
-  target: string
-): Array<"correct" | "present" | "absent"> {
-  const result: Array<"correct" | "present" | "absent"> = Array(
-    WORD_LENGTH
-  ).fill("absent");
-  const targetChars = target.split("");
-  const consumed = Array(WORD_LENGTH).fill(false);
-
-  // Pass 1: greens
-  for (let i = 0; i < WORD_LENGTH; i++) {
-    if (guess[i] === targetChars[i]) {
-      result[i] = "correct";
-      consumed[i] = true;
-    }
-  }
-
-  // Pass 2: yellows
-  for (let i = 0; i < WORD_LENGTH; i++) {
-    if (result[i] === "correct") continue;
-    for (let j = 0; j < WORD_LENGTH; j++) {
-      if (!consumed[j] && guess[i] === targetChars[j]) {
-        result[i] = "present";
-        consumed[j] = true;
-        break;
-      }
-    }
-  }
-
-  return result;
-}
-
-function emptyGrid(): TileData[][] {
-  return Array.from({ length: MAX_GUESSES }, () =>
-    Array.from({ length: WORD_LENGTH }, () => ({ letter: "", state: "empty" as TileState }))
-  );
-}
+const WORD_LENGTH = 5;
 
 const KEYBOARD_ROWS = [
   ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
@@ -71,40 +23,93 @@ const KEYBOARD_ROWS = [
   ["Enter", "Z", "X", "C", "V", "B", "N", "M", "Backspace"],
 ];
 
-const TILE_COLORS: Record<TileState, { bg: string; border: string; text: string }> = {
-  empty:   { bg: "transparent",  border: "#3a3a3c", text: "#ffffff" },
-  filled:  { bg: "transparent",  border: "#565758", text: "#ffffff" },
-  correct: { bg: "#538d4e",      border: "#538d4e", text: "#ffffff" },
-  present: { bg: "#b59f3b",      border: "#b59f3b", text: "#ffffff" },
-  absent:  { bg: "#3a3a3c",      border: "#3a3a3c", text: "#ffffff" },
+const TILE_COLORS: Record<TileState, { bg: string; border: string }> = {
+  empty:   { bg: "transparent", border: "#3a3a3c" },
+  filled:  { bg: "transparent", border: "#565758" },
+  correct: { bg: "#538d4e",     border: "#538d4e" },
+  present: { bg: "#b59f3b",     border: "#b59f3b" },
+  absent:  { bg: "#3a3a3c",     border: "#3a3a3c" },
 };
 
-const KEY_COLORS: Record<KeyState, { bg: string; text: string }> = {
-  unused:  { bg: "#818384", text: "#ffffff" },
-  correct: { bg: "#538d4e", text: "#ffffff" },
-  present: { bg: "#b59f3b", text: "#ffffff" },
-  absent:  { bg: "#3a3a3c", text: "#ffffff" },
+const KEY_COLORS: Record<KeyState, { bg: string }> = {
+  unused:  { bg: "#818384" },
+  correct: { bg: "#538d4e" },
+  present: { bg: "#b59f3b" },
+  absent:  { bg: "#3a3a3c" },
 };
 
-// ------- Tile component -------
+// ---- helpers ----------------------------------------------------------------
+
+function scoringToState(s: "green" | "yellow" | "gray"): TileState {
+  if (s === "green") return "correct";
+  if (s === "yellow") return "present";
+  return "absent";
+}
+
+function buildGrid(
+  gameState: GameState,
+  currentLetters: string[]
+): TileData[][] {
+  const rows: TileData[][] = [];
+
+  for (const { word, scoring } of gameState.guesses) {
+    rows.push(
+      word.split("").map((letter, i) => ({
+        letter,
+        state: scoringToState(scoring[i]),
+      }))
+    );
+  }
+
+  if (gameState.status === "playing" && rows.length < gameState.maxGuesses) {
+    const row: TileData[] = [];
+    for (let i = 0; i < gameState.length; i++) {
+      row.push({
+        letter: currentLetters[i] ?? "",
+        state: currentLetters[i] ? "filled" : "empty",
+      });
+    }
+    rows.push(row);
+  }
+
+  while (rows.length < gameState.maxGuesses) {
+    rows.push(
+      Array.from({ length: gameState.length }, () => ({
+        letter: "",
+        state: "empty" as TileState,
+      }))
+    );
+  }
+
+  return rows;
+}
+
+// ---- Tile -------------------------------------------------------------------
 
 interface TileProps {
   letter: string;
   state: TileState;
-  flipDelay?: number;   // ms, triggers flip animation
+  flipDelay?: number;
   bounce?: boolean;
   bounceDelay?: number;
-  shouldPop?: boolean;
 }
 
-function Tile({ letter, state, flipDelay, bounce, bounceDelay, shouldPop }: TileProps) {
+function isScored(s: TileState): s is "correct" | "present" | "absent" {
+  return s === "correct" || s === "present" || s === "absent";
+}
+
+function Tile({ letter, state, flipDelay, bounce, bounceDelay }: TileProps) {
+  // displayState: scored color revealed at flip midpoint (not used for empty/filled).
+  // preFlipColor: what the tile showed *before* scoring — held as state so it's safe
+  //   to read during render; set inside the setTimeout (deferred), not synchronously.
   const [displayState, setDisplayState] = useState<TileState>(state);
+  const [preFlipColor, setPreFlipColor] = useState<TileState>(state);
   const [flipping, setFlipping] = useState<"front" | "back" | null>(null);
   const [popClass, setPopClass] = useState("");
   const prevLetter = useRef(letter);
   const prevState = useRef(state);
 
-  // Pop animation when a letter is typed
+  // Pop when a letter is typed into this tile
   useEffect(() => {
     if (letter && letter !== prevLetter.current && state === "filled") {
       setPopClass("tile-pop");
@@ -115,14 +120,14 @@ function Tile({ letter, state, flipDelay, bounce, bounceDelay, shouldPop }: Tile
     prevLetter.current = letter;
   }, [letter, state]);
 
-  // Flip animation when state changes to a scored state
+  // Flip when state transitions to a scored value.
+  // All setX calls are inside setTimeout callbacks (deferred), never synchronous in the body.
   useEffect(() => {
-    if (
-      prevState.current !== state &&
-      ["correct", "present", "absent"].includes(state) &&
-      flipDelay !== undefined
-    ) {
+    if (prevState.current !== state && isScored(state) && flipDelay !== undefined) {
+      const captured = prevState.current; // pre-flip color to show during front half
+      prevState.current = state;
       const t1 = setTimeout(() => {
+        setPreFlipColor(captured); // batched with setFlipping in same tick
         setFlipping("front");
         const t2 = setTimeout(() => {
           setDisplayState(state);
@@ -132,16 +137,20 @@ function Tile({ letter, state, flipDelay, bounce, bounceDelay, shouldPop }: Tile
         }, 250);
         return () => clearTimeout(t2);
       }, flipDelay);
-      prevState.current = state;
       return () => clearTimeout(t1);
     }
     prevState.current = state;
-    if (!["correct", "present", "absent"].includes(state)) {
-      setDisplayState(state);
-    }
-  }, [state, flipDelay]);
+  }, [state, flipDelay]); // preFlipColor intentionally omitted — we only write it, never read it here
 
-  const colors = TILE_COLORS[displayState];
+  // During front flip: show what the tile looked like before scoring.
+  // Scored tiles at rest / back-flip: show displayState (revealed at midpoint).
+  // Unscored tiles (empty/filled): read state prop directly — no setState needed.
+  const colorKey: TileState =
+    flipping === "front" ? preFlipColor
+    : isScored(state)   ? displayState
+    :                     state;
+
+  const colors = TILE_COLORS[colorKey];
   const bounceStyle =
     bounce && bounceDelay !== undefined
       ? { animationDelay: `${bounceDelay}ms` }
@@ -162,7 +171,7 @@ function Tile({ letter, state, flipDelay, bounce, bounceDelay, shouldPop }: Tile
         height: 62,
         border: `2px solid ${colors.border}`,
         background: colors.bg,
-        color: colors.text,
+        color: "#ffffff",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -177,119 +186,151 @@ function Tile({ letter, state, flipDelay, bounce, bounceDelay, shouldPop }: Tile
   );
 }
 
-// ------- Main Game -------
+// ---- Main game --------------------------------------------------------------
 
 export default function Home() {
-  const [grid, setGrid] = useState<TileData[][]>(emptyGrid());
-  const [currentRow, setCurrentRow] = useState(0);
-  const [currentCol, setCurrentCol] = useState(0);
-  const [keyStates, setKeyStates] = useState<Record<string, KeyState>>({});
-  const [gameStatus, setGameStatus] = useState<"playing" | "won" | "lost">("playing");
+  const [gameState, setGameState] = useState<GameState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [currentLetters, setCurrentLetters] = useState<string[]>([]);
   const [shakingRow, setShakingRow] = useState<number | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [justRevealedRow, setJustRevealedRow] = useState<number | null>(null);
   const [bouncingRow, setBouncingRow] = useState<number | null>(null);
-  // tracks which rows have been scored and should trigger flip
-  const [scoredRows, setScoredRows] = useState<Set<number>>(new Set());
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
-  const showToast = useCallback((msg: string) => {
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const submittingRef = useRef(false);
+
+  const showToast = useCallback((msg: string, duration = 3000) => {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 1500);
+    toastTimer.current = setTimeout(() => setToast(null), duration);
   }, []);
 
-  const submitRow = useCallback(() => {
-    if (currentCol < WORD_LENGTH) {
-      setShakingRow(currentRow);
-      showToast("Not enough letters");
-      setTimeout(() => setShakingRow(null), 400);
-      return;
-    }
+  // On mount: resume from URL or create a new game
+  useEffect(() => {
+    async function init() {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get("game");
 
-    const guess = grid[currentRow].map((t) => t.letter).join("");
-    const scores = scoreGuess(guess, TARGET_WORD);
+      let state: GameState | null = null;
 
-    // Update grid with scores
-    setGrid((prev) => {
-      const next = prev.map((r) => r.map((t) => ({ ...t })));
-      for (let i = 0; i < WORD_LENGTH; i++) {
-        next[currentRow][i].state = scores[i];
-      }
-      return next;
-    });
-
-    setScoredRows((prev) => new Set([...prev, currentRow]));
-
-    // Update keyboard — green > yellow > gray, never downgrade green
-    setKeyStates((prev) => {
-      const next = { ...prev };
-      for (let i = 0; i < WORD_LENGTH; i++) {
-        const letter = guess[i];
-        const score = scores[i];
-        const current = next[letter] ?? "unused";
-        if (score === "correct") {
-          next[letter] = "correct";
-        } else if (score === "present" && current !== "correct") {
-          next[letter] = "present";
-        } else if (score === "absent" && current === "unused") {
-          next[letter] = "absent";
+      if (id) {
+        try {
+          state = await getGame(id);
+          window.history.replaceState(null, "", `?game=${state.gameId}`);
+        } catch (e) {
+          if (e instanceof ApiError && e.code === "not_found") {
+            showToast("Game not found, started a new one");
+            state = null;
+          } else {
+            showToast("Couldn't reach the server");
+            setLoading(false);
+            return;
+          }
         }
       }
-      return next;
-    });
 
-    const won = scores.every((s) => s === "correct");
-    const lastGuess = currentRow === MAX_GUESSES - 1;
+      if (!state) {
+        try {
+          state = await createGame();
+          window.history.replaceState(null, "", `?game=${state.gameId}`);
+        } catch {
+          showToast("Couldn't reach the server");
+          setLoading(false);
+          return;
+        }
+      }
 
-    // Delay status update until flip animations complete (~WORD_LENGTH * 250 + 500ms buffer)
-    const flipDuration = WORD_LENGTH * 250 + 500;
-
-    if (won) {
-      setTimeout(() => {
-        setBouncingRow(currentRow);
-        setGameStatus("won");
-      }, flipDuration);
-    } else if (lastGuess) {
-      setTimeout(() => setGameStatus("lost"), flipDuration);
+      setGameState(state);
+      setLoading(false);
     }
 
-    setCurrentRow((r) => r + 1);
-    setCurrentCol(0);
-  }, [currentRow, currentCol, grid, showToast]);
+    init();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Derived: keyboard letter states from all scored guesses
+  const keyStates = useMemo<Record<string, KeyState>>(() => {
+    if (!gameState) return {};
+    const result: Record<string, KeyState> = {};
+    for (const { word, scoring } of gameState.guesses) {
+      for (let i = 0; i < word.length; i++) {
+        const letter = word[i];
+        const s = scoring[i];
+        const current = result[letter];
+        if (s === "green") {
+          result[letter] = "correct";
+        } else if (s === "yellow" && current !== "correct") {
+          result[letter] = "present";
+        } else if (s === "gray" && !current) {
+          result[letter] = "absent";
+        }
+      }
+    }
+    return result;
+  }, [gameState]);
 
   const handleKey = useCallback(
-    (key: string) => {
-      if (gameStatus !== "playing") return;
-
-      if (key === "Enter") {
-        submitRow();
+    async (key: string) => {
+      if (!gameState || gameState.status !== "playing" || submittingRef.current)
         return;
-      }
 
       if (key === "Backspace") {
-        if (currentCol === 0) return;
-        setGrid((prev) => {
-          const next = prev.map((r) => r.map((t) => ({ ...t })));
-          next[currentRow][currentCol - 1] = { letter: "", state: "empty" };
-          return next;
-        });
-        setCurrentCol((c) => c - 1);
+        setCurrentLetters((prev) => prev.slice(0, -1));
         return;
       }
 
-      if (/^[A-Z]$/.test(key) && currentCol < WORD_LENGTH) {
-        setGrid((prev) => {
-          const next = prev.map((r) => r.map((t) => ({ ...t })));
-          next[currentRow][currentCol] = { letter: key, state: "filled" };
-          return next;
-        });
-        setCurrentCol((c) => c + 1);
+      if (key === "Enter") {
+        if (currentLetters.length < WORD_LENGTH) {
+          const rowIdx = gameState.guesses.length;
+          setShakingRow(rowIdx);
+          showToast("Not enough letters", 1500);
+          setTimeout(() => setShakingRow(null), 400);
+          return;
+        }
+
+        submittingRef.current = true;
+        const guess = currentLetters.join("");
+        const rowIdx = gameState.guesses.length;
+
+        try {
+          const newState = await submitGuess(gameState.gameId, guess);
+          const flipDuration = WORD_LENGTH * 250 + 600;
+
+          setCurrentLetters([]);
+          setJustRevealedRow(rowIdx);
+          setGameState(newState);
+
+          setTimeout(() => setJustRevealedRow(null), flipDuration);
+
+          if (newState.status === "won") {
+            setTimeout(() => setBouncingRow(rowIdx), flipDuration);
+          }
+        } catch (e) {
+          if (e instanceof ApiError) {
+            if (e.code === "invalid_guess" || e.code === "bad_request") {
+              showToast("That guess isn't valid");
+            } else if (e.code === "not_found") {
+              showToast("Game not found, started a new one");
+            } else {
+              showToast("Couldn't reach the server");
+            }
+          } else {
+            showToast("Couldn't reach the server");
+          }
+        } finally {
+          submittingRef.current = false;
+        }
+        return;
+      }
+
+      if (/^[A-Z]$/.test(key) && currentLetters.length < WORD_LENGTH) {
+        setCurrentLetters((prev) => [...prev, key]);
       }
     },
-    [gameStatus, currentRow, currentCol, submitRow]
+    [gameState, currentLetters, showToast]
   );
 
-  // Physical keyboard
+  // Physical keyboard listener
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -302,17 +343,44 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [handleKey]);
 
-  const resetGame = () => {
-    setGrid(emptyGrid());
-    setCurrentRow(0);
-    setCurrentCol(0);
-    setKeyStates({});
-    setGameStatus("playing");
-    setShakingRow(null);
-    setToast(null);
-    setBouncingRow(null);
-    setScoredRows(new Set());
-  };
+  const resetGame = useCallback(async () => {
+    try {
+      const newState = await createGame();
+      window.history.replaceState(null, "", `?game=${newState.gameId}`);
+      setGameState(newState);
+      setCurrentLetters([]);
+      setJustRevealedRow(null);
+      setBouncingRow(null);
+      setShakingRow(null);
+      setToast(null);
+    } catch {
+      showToast("Couldn't reach the server");
+    }
+  }, [showToast]);
+
+  // ---- render ----------------------------------------------------------------
+
+  if (loading) {
+    return (
+      <main
+        style={{
+          minHeight: "100vh",
+          background: "#121213",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <span style={{ color: "#ffffff", fontSize: 20, fontWeight: 600 }}>
+          Loading…
+        </span>
+      </main>
+    );
+  }
+
+  if (!gameState) return null;
+
+  const grid = buildGrid(gameState, currentLetters);
 
   return (
     <main
@@ -344,9 +412,16 @@ export default function Home() {
         WORDLE
       </h1>
 
-      {/* Toast */}
-      <div style={{ height: 36, display: "flex", alignItems: "center", marginBottom: 8 }}>
-        {toast && (
+      {/* Toast / status message */}
+      <div
+        style={{
+          height: 36,
+          display: "flex",
+          alignItems: "center",
+          marginBottom: 8,
+        }}
+      >
+        {toast ? (
           <div
             style={{
               background: "#ffffff",
@@ -359,17 +434,15 @@ export default function Home() {
           >
             {toast}
           </div>
-        )}
-        {!toast && gameStatus === "won" && (
+        ) : gameState.status === "won" ? (
           <div style={{ color: "#538d4e", fontWeight: 700, fontSize: 18 }}>
-            Solved in {currentRow}!
+            Solved in {gameState.guesses.length}!
           </div>
-        )}
-        {!toast && gameStatus === "lost" && (
+        ) : gameState.status === "lost" ? (
           <div style={{ color: "#b59f3b", fontWeight: 700, fontSize: 18 }}>
-            The word was {TARGET_WORD}
+            The word was {gameState.target}
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Grid */}
@@ -389,10 +462,12 @@ export default function Home() {
           >
             {row.map((tile, colIdx) => (
               <Tile
-                key={colIdx}
+                key={`${gameState.gameId}-${rowIdx}-${colIdx}`}
                 letter={tile.letter}
                 state={tile.state}
-                flipDelay={scoredRows.has(rowIdx) ? colIdx * 250 : undefined}
+                flipDelay={
+                  justRevealedRow === rowIdx ? colIdx * 250 : undefined
+                }
                 bounce={bouncingRow === rowIdx}
                 bounceDelay={colIdx * 100}
               />
@@ -402,13 +477,19 @@ export default function Home() {
       </div>
 
       {/* Keyboard */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          alignItems: "center",
+        }}
+      >
         {KEYBOARD_ROWS.map((row, rIdx) => (
           <div key={rIdx} style={{ display: "flex", gap: 6 }}>
             {row.map((key) => {
               const isWide = key === "Enter" || key === "Backspace";
               const ks = keyStates[key] ?? "unused";
-              const colors = KEY_COLORS[ks];
               return (
                 <button
                   key={key}
@@ -416,8 +497,8 @@ export default function Home() {
                   style={{
                     width: isWide ? 65 : 43,
                     height: 58,
-                    background: colors.bg,
-                    color: colors.text,
+                    background: KEY_COLORS[ks].bg,
+                    color: "#ffffff",
                     border: "none",
                     borderRadius: 4,
                     fontWeight: 700,
@@ -438,8 +519,8 @@ export default function Home() {
         ))}
       </div>
 
-      {/* New game button */}
-      {gameStatus !== "playing" && (
+      {/* New game */}
+      {gameState.status !== "playing" && (
         <button
           onClick={resetGame}
           style={{
@@ -458,6 +539,7 @@ export default function Home() {
           New Game
         </button>
       )}
+
     </main>
   );
 }

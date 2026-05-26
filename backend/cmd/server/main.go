@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
@@ -10,9 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
+	"github.com/placeholder/wordle-rooms/internal/api"
+	"github.com/placeholder/wordle-rooms/internal/game"
 )
 
 func main() {
@@ -21,22 +19,12 @@ func main() {
 		port = "8080"
 	}
 
-	r := chi.NewRouter()
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{"http://localhost:3000"},
-		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-	}))
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
-
-	r.Get("/api/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
-	})
+	store := game.NewStore()
+	router := api.NewRouter(store)
 
 	srv := &http.Server{
 		Addr:    ":" + port,
-		Handler: r,
+		Handler: router,
 	}
 
 	stop := make(chan os.Signal, 1)

@@ -22,8 +22,8 @@ make backend
 make frontend
 ```
 
-- Frontend: http://localhost:3000 — shows "wordle-rooms" and the live backend health status
-- Backend health: http://localhost:8080/api/health — returns `{"status":"ok"}`
+- Frontend: http://localhost:3000 — playable Wordle game
+- Backend: http://localhost:8080/api/health — returns `{"status":"ok"}`
 
 ## Project structure
 
@@ -49,9 +49,6 @@ make down       # stop Postgres
 make backend    # run Go server on :8080
 make frontend   # run Next.js dev server on :3000
 make db         # open psql shell in running Postgres container
+make test       # run Go unit tests
 make tidy       # go mod tidy
 ```
-
----
-
-**Current phase: 0 — scaffolding.** No game logic, rooms, or database schema yet.

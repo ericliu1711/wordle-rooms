@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: up down backend frontend db tidy help
+.PHONY: up down backend frontend db tidy test help
 
 up: ## Start Postgres in Docker
 	docker compose up -d
@@ -16,6 +16,9 @@ frontend: ## Run the Next.js dev server
 
 db: ## Open a psql shell in the running Postgres container
 	docker compose exec postgres psql -U wordle -d wordle
+
+test: ## Run Go unit tests
+	cd backend && go test ./...
 
 tidy: ## Tidy Go module dependencies
 	cd backend && go mod tidy
