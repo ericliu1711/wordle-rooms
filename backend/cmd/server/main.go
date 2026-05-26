@@ -12,6 +12,7 @@ import (
 	"github.com/placeholder/wordle-rooms/internal/api"
 	"github.com/placeholder/wordle-rooms/internal/db"
 	"github.com/placeholder/wordle-rooms/internal/game"
+	"github.com/placeholder/wordle-rooms/internal/room"
 	"github.com/placeholder/wordle-rooms/internal/words"
 )
 
@@ -45,7 +46,8 @@ func main() {
 	}
 
 	gameStore := game.NewStore(wordsRepo)
-	router := api.NewRouter(gameStore)
+	roomStore := room.NewStore(wordsRepo)
+	router := api.NewRouter(gameStore, roomStore)
 
 	srv := &http.Server{
 		Addr:    ":" + port,

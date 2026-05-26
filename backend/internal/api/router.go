@@ -9,9 +9,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 	"github.com/placeholder/wordle-rooms/internal/game"
+	"github.com/placeholder/wordle-rooms/internal/room"
 )
 
-func NewRouter(store *game.Store) http.Handler {
+func NewRouter(gameStore *game.Store, roomStore *room.Store) http.Handler {
 	corsOrigin := os.Getenv("CORS_ORIGIN")
 	if corsOrigin == "" {
 		corsOrigin = "http://localhost:3000"
@@ -22,15 +23,25 @@ func NewRouter(store *game.Store) http.Handler {
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{corsOrigin},
 		AllowedMethods: []string{"GET", "POST", "OPTIONS"},
-		AllowedHeaders: []string{"Content-Type"},
+		AllowedHeaders: []string{"Content-Type", "X-Player-Token"},
 	}))
 
 	r.Use(requestLogger)
 
-	h := &handler{store: store}
-	r.Post("/api/games", h.createGame)
-	r.Get("/api/games/{gameId}", h.getGame)
-	r.Post("/api/games/{gameId}/guesses", h.submitGuess)
+	// Single-player game routes (Phase 2)
+	gh := &handler{store: gameStore}
+	r.Post("/api/games", gh.createGame)
+	r.Get("/api/games/{gameId}", gh.getGame)
+	r.Post("/api/games/{gameId}/guesses", gh.submitGuess)
+
+	// Multiplayer room routes (Phase 4)
+	rh := &roomHandler{store: roomStore}
+	r.Post("/api/rooms", rh.createRoom)
+	r.Post("/api/rooms/{code}/join", rh.joinRoom)
+	r.Get("/api/rooms/{code}", rh.getRoom)
+	r.Post("/api/rooms/{code}/start", rh.startRound)
+	r.Post("/api/rooms/{code}/guesses", rh.submitGuess)
+	r.Post("/api/rooms/{code}/next-round", rh.nextRound)
 
 	r.Get("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -39,7 +50,6 @@ func NewRouter(store *game.Store) http.Handler {
 	return r
 }
 
-// requestLogger is a simple slog-based middleware that logs method, path, status, and duration.
 func requestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}

@@ -12,8 +12,8 @@ type Game struct {
 }
 
 type ScoredGuess struct {
-	Word    string   // uppercase
-	Scoring []string // ["green","yellow","gray","gray","green"]
+	Word    string   `json:"word"`    // uppercase
+	Scoring []string `json:"scoring"` // ["green","yellow","gray","gray","green"]
 }
 
 // Score uses a two-pass algorithm to correctly handle duplicate letters.
