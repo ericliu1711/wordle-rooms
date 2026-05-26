@@ -89,7 +89,7 @@ export default function FinishModal({
                     }}
                   >
                     <span style={{ color: "#818384", fontWeight: 700, fontSize: 13, minWidth: 20 }}>
-                      #{entry.rank}
+                      {entry.status === "out" ? "DNF" : `#${entry.rank}`}
                     </span>
                     <span style={{ color: "#ffffff", fontSize: 14, fontWeight: isYouEntry ? 700 : 400, flex: 1 }}>
                       {entry.name}

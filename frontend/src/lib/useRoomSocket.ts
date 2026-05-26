@@ -55,11 +55,11 @@ export function useRoomSocket(
           const msg = JSON.parse(evt.data as string) as { type: string; data: unknown };
           if (msg.type === "room_state") {
             setState((prev) => ({ ...prev, room: msg.data as RoomState }));
-          } else {
+          } else if (process.env.NODE_ENV !== "production") {
             console.warn("ws: unknown message type", msg.type);
           }
         } catch (e) {
-          console.error("ws: parse error", e);
+          if (process.env.NODE_ENV !== "production") console.error("ws: parse error", e);
         }
       };
 

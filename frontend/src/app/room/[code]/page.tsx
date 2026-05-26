@@ -41,8 +41,7 @@ export default function RoomPage() {
       .then(applyServerResponse)
       .catch(() => { /* WS error handling covers failures */ })
       .finally(() => setInitialLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tokenReady, token, code]); // applyServerResponse is stable (useCallback)
+  }, [tokenReady, token, code, applyServerResponse]);
 
   // Join form state
   const [joinName, setJoinName] = useState("");
@@ -52,6 +51,7 @@ export default function RoomPage() {
   // Action loading states
   const [startLoading, setStartLoading] = useState(false);
   const [nextRoundLoading, setNextRoundLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Holds the room state from the most recent successful guess HTTP response.
   // Applied via onGuessConfirmed (called in the same React batch as setCurrentLetters)
@@ -102,6 +102,8 @@ export default function RoomPage() {
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault();
     setJoinError(null);
+    if (!/^[A-Z]{4}$/.test(code)) { setJoinError("Room codes are 4 letters (A–Z)."); return; }
+    if (!joinName.trim()) { setJoinError("Please enter your name."); return; }
     setJoining(true);
     try {
       const res = await joinRoom(code, joinName.trim());
@@ -125,22 +127,30 @@ export default function RoomPage() {
 
   async function handleStart() {
     if (!token) return;
+    setActionError(null);
     setStartLoading(true);
     try {
       const state = await startRound(code, token);
       applyServerResponse(state);
-    } catch { /* WS broadcast will deliver the update */ }
-    finally { setStartLoading(false); }
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Couldn't reach the server.";
+      setActionError(msg);
+      setTimeout(() => setActionError(null), 3000);
+    } finally { setStartLoading(false); }
   }
 
   async function handleNextRound() {
     if (!token) return;
+    setActionError(null);
     setNextRoundLoading(true);
     try {
       const state = await nextRound(code, token);
       applyServerResponse(state);
-    } catch { /* WS broadcast will deliver the update */ }
-    finally { setNextRoundLoading(false); }
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Couldn't reach the server.";
+      setActionError(msg);
+      setTimeout(() => setActionError(null), 3000);
+    } finally { setNextRoundLoading(false); }
   }
 
   async function handleGuessSubmit(guess: string) {
@@ -256,13 +266,21 @@ export default function RoomPage() {
           </div>
 
           {room.youAreHost ? (
-            <button
-              onClick={handleStart}
-              disabled={startLoading || room.players.length < 1}
-              style={primaryBtn}
-            >
-              {startLoading ? "Starting…" : "Start Round"}
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, width: "100%" }}>
+              <button
+                onClick={handleStart}
+                disabled={startLoading || room.players.length < 2}
+                style={primaryBtn}
+              >
+                {startLoading ? "Starting…" : "Start Round"}
+              </button>
+              {room.players.length < 2 && (
+                <p style={{ color: "#818384", fontSize: 13, margin: 0 }}>
+                  Waiting for at least one more player.
+                </p>
+              )}
+              {actionError && <p style={errorStyle}>{actionError}</p>}
+            </div>
           ) : (
             <p style={{ color: "#818384", fontSize: 14 }}>Waiting for host to start…</p>
           )}
@@ -332,9 +350,12 @@ export default function RoomPage() {
                 </p>
               )}
               {room.youAreHost ? (
-                <button onClick={handleNextRound} disabled={nextRoundLoading} style={primaryBtn}>
-                  {nextRoundLoading ? "Starting…" : "Next Round"}
-                </button>
+                <>
+                  <button onClick={handleNextRound} disabled={nextRoundLoading} style={primaryBtn}>
+                    {nextRoundLoading ? "Starting…" : "Next Round"}
+                  </button>
+                  {actionError && <p style={errorStyle}>{actionError}</p>}
+                </>
               ) : (
                 <p style={{ color: "#818384", fontSize: 13, margin: 0 }}>Waiting for host to start…</p>
               )}

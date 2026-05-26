@@ -7,27 +7,34 @@ import (
 	"time"
 
 	"github.com/placeholder/wordle-rooms/internal/game"
-	"github.com/placeholder/wordle-rooms/internal/words"
 )
+
+// wordRepo is the subset of words.Repository used by the room store.
+// Defined as an interface so tests can inject stubs without a real database.
+type wordRepo interface {
+	RandomTarget(ctx context.Context) (string, error)
+	IsValidGuess(ctx context.Context, word string) (bool, error)
+}
 
 // TODO V2: per-room mutex if global mutex becomes contended under high concurrent room load.
 type Store struct {
 	mu    sync.RWMutex
 	rooms map[string]*Room
-	words *words.Repository
+	words wordRepo
 }
 
-func NewStore(w *words.Repository) *Store {
+func NewStore(w wordRepo) *Store {
 	return &Store{
 		rooms: make(map[string]*Room),
 		words: w,
 	}
 }
 
-func (s *Store) Create(ctx context.Context, hostName string) (*Room, string, error) {
+// Create creates a new room and returns the caller's PlayerView (built under the write lock).
+func (s *Store) Create(ctx context.Context, hostName string) (PlayerViewResponse, string, error) {
 	hostName = strings.TrimSpace(hostName)
 	if err := validateName(hostName); err != nil {
-		return nil, "", err
+		return PlayerViewResponse{}, "", err
 	}
 
 	hostToken := GenerateToken()
@@ -53,7 +60,7 @@ func (s *Store) Create(ctx context.Context, hostName string) (*Room, string, err
 		}
 	}
 	if code == "" {
-		return nil, "", ErrCodeCollision
+		return PlayerViewResponse{}, "", ErrCodeCollision
 	}
 
 	r := &Room{
@@ -66,23 +73,43 @@ func (s *Store) Create(ctx context.Context, hostName string) (*Room, string, err
 		CreatedAt:  now,
 	}
 	s.rooms[code] = r
-	return r, hostToken, nil
+	return PlayerView(r, hostToken), hostToken, nil
 }
 
-func (s *Store) Get(code string) (*Room, error) {
+// GetView looks up a room and returns the caller's view, built under the read lock.
+// An empty callerToken produces a stranger view (no guesses, no isYou).
+func (s *Store) GetView(code, callerToken string) (PlayerViewResponse, error) {
 	s.mu.RLock()
 	r, ok := s.rooms[code]
-	s.mu.RUnlock()
 	if !ok {
-		return nil, ErrRoomNotFound
+		s.mu.RUnlock()
+		return PlayerViewResponse{}, ErrRoomNotFound
 	}
-	return r, nil
+	view := PlayerView(r, callerToken)
+	s.mu.RUnlock()
+	return view, nil
 }
 
-func (s *Store) Join(ctx context.Context, code, name string) (*Room, string, error) {
+// ValidatePlayer checks that the room exists and the token belongs to a player in it.
+// Used by the WebSocket upgrade handler before upgrading the connection.
+func (s *Store) ValidatePlayer(code, token string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	r, ok := s.rooms[code]
+	if !ok {
+		return ErrRoomNotFound
+	}
+	if _, ok := r.Players[token]; !ok {
+		return ErrNotInRoom
+	}
+	return nil
+}
+
+// Join adds a player to the room and returns their view (built under the write lock).
+func (s *Store) Join(ctx context.Context, code, name string) (PlayerViewResponse, string, error) {
 	name = strings.TrimSpace(name)
 	if err := validateName(name); err != nil {
-		return nil, "", err
+		return PlayerViewResponse{}, "", err
 	}
 
 	s.mu.Lock()
@@ -90,14 +117,14 @@ func (s *Store) Join(ctx context.Context, code, name string) (*Room, string, err
 
 	r, ok := s.rooms[code]
 	if !ok {
-		return nil, "", ErrRoomNotFound
+		return PlayerViewResponse{}, "", ErrRoomNotFound
 	}
 	if r.Status != StatusLobby {
-		return nil, "", ErrRoomNotJoinable
+		return PlayerViewResponse{}, "", ErrRoomNotJoinable
 	}
 	for _, p := range r.Players {
 		if strings.EqualFold(p.Name, name) {
-			return nil, "", ErrNameTaken
+			return PlayerViewResponse{}, "", ErrNameTaken
 		}
 	}
 
@@ -110,13 +137,14 @@ func (s *Store) Join(ctx context.Context, code, name string) (*Room, string, err
 		Guesses:  []game.ScoredGuess{},
 		Status:   PlayerPlaying,
 	}
-	return r, token, nil
+	return PlayerView(r, token), token, nil
 }
 
-func (s *Store) StartRound(ctx context.Context, code, token string) (*Room, error) {
+// StartRound starts a new round and returns the caller's view (built under the write lock).
+func (s *Store) StartRound(ctx context.Context, code, token string) (PlayerViewResponse, error) {
 	target, err := s.words.RandomTarget(ctx)
 	if err != nil {
-		return nil, err
+		return PlayerViewResponse{}, err
 	}
 
 	s.mu.Lock()
@@ -124,13 +152,16 @@ func (s *Store) StartRound(ctx context.Context, code, token string) (*Room, erro
 
 	r, ok := s.rooms[code]
 	if !ok {
-		return nil, ErrRoomNotFound
+		return PlayerViewResponse{}, ErrRoomNotFound
 	}
 	if token != r.HostToken {
-		return nil, ErrNotHost
+		return PlayerViewResponse{}, ErrNotHost
 	}
 	if r.Status != StatusLobby {
-		return nil, ErrCannotStart
+		return PlayerViewResponse{}, ErrCannotStart
+	}
+	if len(r.Players) < 2 {
+		return PlayerViewResponse{}, ErrNotEnoughPlayers
 	}
 
 	now := time.Now()
@@ -144,22 +175,23 @@ func (s *Store) StartRound(ctx context.Context, code, token string) (*Room, erro
 		p.Status = PlayerPlaying
 		p.SolvedAt = nil
 	}
-	return r, nil
+	return PlayerView(r, token), nil
 }
 
-func (s *Store) SubmitGuess(ctx context.Context, code, token, guess string) (*Room, error) {
+// SubmitGuess records a guess and returns the player's view (built under the write lock).
+func (s *Store) SubmitGuess(ctx context.Context, code, token, guess string) (PlayerViewResponse, error) {
 	guess = strings.ToUpper(strings.TrimSpace(guess))
 	if len(guess) != 5 || !isAlpha(guess) {
-		return nil, game.ErrInvalidGuess
+		return PlayerViewResponse{}, game.ErrInvalidGuess
 	}
 
 	// Dictionary check before acquiring lock — avoids holding mutex across IO.
 	ok, err := s.words.IsValidGuess(ctx, guess)
 	if err != nil {
-		return nil, err
+		return PlayerViewResponse{}, err
 	}
 	if !ok {
-		return nil, game.ErrInvalidWord
+		return PlayerViewResponse{}, game.ErrInvalidWord
 	}
 
 	s.mu.Lock()
@@ -167,17 +199,17 @@ func (s *Store) SubmitGuess(ctx context.Context, code, token, guess string) (*Ro
 
 	r, ok := s.rooms[code]
 	if !ok {
-		return nil, ErrRoomNotFound
+		return PlayerViewResponse{}, ErrRoomNotFound
 	}
 	if r.Status != StatusPlaying {
-		return nil, ErrNotYourTurn
+		return PlayerViewResponse{}, ErrNotYourTurn
 	}
 	player, ok := r.Players[token]
 	if !ok {
-		return nil, ErrNotInRoom
+		return PlayerViewResponse{}, ErrNotInRoom
 	}
 	if player.Status != PlayerPlaying {
-		return nil, ErrNotYourTurn
+		return PlayerViewResponse{}, ErrNotYourTurn
 	}
 
 	scoring := game.Score(guess, r.Target)
@@ -212,13 +244,14 @@ func (s *Store) SubmitGuess(ctx context.Context, code, token, guess string) (*Ro
 		r.FinishedAt = &now
 	}
 
-	return r, nil
+	return PlayerView(r, token), nil
 }
 
-func (s *Store) NextRound(ctx context.Context, code, token string) (*Room, error) {
+// NextRound resets the room for a new round and returns the caller's view (built under the write lock).
+func (s *Store) NextRound(ctx context.Context, code, token string) (PlayerViewResponse, error) {
 	target, err := s.words.RandomTarget(ctx)
 	if err != nil {
-		return nil, err
+		return PlayerViewResponse{}, err
 	}
 
 	s.mu.Lock()
@@ -226,13 +259,13 @@ func (s *Store) NextRound(ctx context.Context, code, token string) (*Room, error
 
 	r, ok := s.rooms[code]
 	if !ok {
-		return nil, ErrRoomNotFound
+		return PlayerViewResponse{}, ErrRoomNotFound
 	}
 	if token != r.HostToken {
-		return nil, ErrNotHost
+		return PlayerViewResponse{}, ErrNotHost
 	}
 	if r.Status != StatusFinished {
-		return nil, ErrCannotNextRound
+		return PlayerViewResponse{}, ErrCannotNextRound
 	}
 
 	now := time.Now()
@@ -246,7 +279,7 @@ func (s *Store) NextRound(ctx context.Context, code, token string) (*Room, error
 		p.Status = PlayerPlaying
 		p.SolvedAt = nil
 	}
-	return r, nil
+	return PlayerView(r, token), nil
 }
 
 func validateName(name string) error {

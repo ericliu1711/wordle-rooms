@@ -3,7 +3,7 @@
 ## Phase 4 deferred items
 
 ### Host disconnect detection
-Currently undetected. If the host closes their tab, the room persists in memory with no host. Players cannot start rounds. Fix in Phase 5: WebSocket presence tracking will detect when the host connection drops.
+Still deferred. Phase 5 added WebSocket presence (we now know when a client's socket closes), but we deliberately did not act on host disconnects. Open design questions: room dies, longest-standing player migrates to host, or grace period with reconnect. Defer to V2.
 
 ### Room TTL / cleanup
 Rooms live in memory until the server restarts. There is no cleanup of idle or finished rooms. On a long-running server this is a memory leak. Fix in V2: add a TTL sweeping goroutine that removes rooms not touched in N hours.

@@ -12,5 +12,6 @@ var (
 	ErrCannotStart     = errors.New("cannot start round in this state")
 	ErrNotInRoom       = errors.New("you are not in this room")
 	ErrNotYourTurn     = errors.New("you cannot guess right now")
-	ErrCannotNextRound = errors.New("cannot start next round in this state")
+	ErrCannotNextRound  = errors.New("cannot start next round in this state")
+	ErrNotEnoughPlayers = errors.New("need at least 2 players to start")
 )

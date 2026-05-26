@@ -36,23 +36,20 @@ type gameResp struct {
 	Target     string      `json:"target,omitempty"` // revealed only when game is over
 }
 
-// buildResp is the single place where we decide whether to expose Target.
-func buildResp(g *game.Game) gameResp {
-	guesses := make([]guessResp, len(g.Guesses))
-	for i, sg := range g.Guesses {
+// buildResp converts a store Snapshot to the API response shape.
+func buildResp(snap game.Snapshot) gameResp {
+	guesses := make([]guessResp, len(snap.Guesses))
+	for i, sg := range snap.Guesses {
 		guesses[i] = guessResp{Word: sg.Word, Scoring: sg.Scoring}
 	}
-	resp := gameResp{
-		GameID:     g.ID,
-		Length:     len(g.Target),
-		MaxGuesses: g.MaxGuesses,
-		Status:     g.Status,
+	return gameResp{
+		GameID:     snap.ID,
+		Length:     snap.Length,
+		MaxGuesses: snap.MaxGuesses,
+		Status:     snap.Status,
 		Guesses:    guesses,
+		Target:     snap.Target, // non-empty only when game is over (set by snapshotOf)
 	}
-	if g.Status == "won" || g.Status == "lost" {
-		resp.Target = g.Target
-	}
-	return resp
 }
 
 // ---- helpers ----------------------------------------------------------------
@@ -72,22 +69,22 @@ var onlyLetters = regexp.MustCompile(`^[A-Za-z]+$`)
 // ---- handlers ---------------------------------------------------------------
 
 func (h *handler) createGame(w http.ResponseWriter, r *http.Request) {
-	g, err := h.store.Create(r.Context(), 6)
+	snap, err := h.store.Create(r.Context(), 6)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "internal error", "internal_error")
 		return
 	}
-	writeJSON(w, http.StatusCreated, buildResp(g))
+	writeJSON(w, http.StatusCreated, buildResp(snap))
 }
 
 func (h *handler) getGame(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "gameId")
-	g, ok := h.store.Get(id)
+	snap, ok := h.store.Get(id)
 	if !ok {
 		writeErr(w, http.StatusNotFound, "game not found", "not_found")
 		return
 	}
-	writeJSON(w, http.StatusOK, buildResp(g))
+	writeJSON(w, http.StatusOK, buildResp(snap))
 }
 
 type guessReq struct {
@@ -109,11 +106,11 @@ func (h *handler) submitGuess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	g, err := h.store.SubmitGuess(r.Context(), id, guess)
+	snap, err := h.store.SubmitGuess(r.Context(), id, guess)
 	if err != nil {
 		switch {
 		case errors.Is(err, game.ErrInvalidWord):
-			writeErr(w, http.StatusBadRequest, "not in word list", "not_a_word")
+			writeErr(w, http.StatusUnprocessableEntity, "not in word list", "not_a_word")
 		case errors.Is(err, game.ErrNotFound):
 			writeErr(w, http.StatusNotFound, "game not found", "not_found")
 		case errors.Is(err, game.ErrAlreadyFinished):
@@ -126,5 +123,5 @@ func (h *handler) submitGuess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, buildResp(g))
+	writeJSON(w, http.StatusOK, buildResp(snap))
 }

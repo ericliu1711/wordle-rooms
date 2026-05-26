@@ -46,7 +46,7 @@ export default function LandingPage() {
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    if (code.trim().length !== 4) { setError("Room code must be 4 letters."); return; }
+    if (!/^[A-Z]{4}$/.test(code.trim())) { setError("Room codes are 4 letters (A–Z)."); return; }
     if (!name.trim()) { setError("Please enter your name."); return; }
     setLoading(true);
     try {

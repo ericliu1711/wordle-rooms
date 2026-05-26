@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/placeholder/wordle-rooms/internal/words"
 )
 
 var (
@@ -19,24 +17,42 @@ var (
 	ErrInvalidWord     = errors.New("not a valid word")
 )
 
+// wordRepo is the subset of words.Repository used by the game store.
+// Defined as an interface so tests can inject stubs without a real database.
+type wordRepo interface {
+	RandomTarget(ctx context.Context) (string, error)
+	IsValidGuess(ctx context.Context, word string) (bool, error)
+}
+
+// Snapshot is a value-type copy of a Game's state, built under the store lock.
+// Handlers and tests use this type instead of holding *Game pointers.
+type Snapshot struct {
+	ID         string
+	Length     int
+	MaxGuesses int
+	Status     string
+	Guesses    []ScoredGuess
+	Target     string // non-empty only when game is over
+}
+
 // TODO: games leak memory until restart — add TTL sweeping in a future phase.
 type Store struct {
 	mu    sync.RWMutex
 	games map[string]*Game
-	words *words.Repository
+	words wordRepo
 }
 
-func NewStore(words *words.Repository) *Store {
+func NewStore(words wordRepo) *Store {
 	return &Store{
 		games: make(map[string]*Game),
 		words: words,
 	}
 }
 
-func (s *Store) Create(ctx context.Context, maxGuesses int) (*Game, error) {
+func (s *Store) Create(ctx context.Context, maxGuesses int) (Snapshot, error) {
 	target, err := s.words.RandomTarget(ctx)
 	if err != nil {
-		return nil, err
+		return Snapshot{}, err
 	}
 	g := &Game{
 		ID:         newID(),
@@ -48,29 +64,35 @@ func (s *Store) Create(ctx context.Context, maxGuesses int) (*Game, error) {
 	}
 	s.mu.Lock()
 	s.games[g.ID] = g
+	snap := snapshotOf(g)
 	s.mu.Unlock()
-	return g, nil
+	return snap, nil
 }
 
-func (s *Store) Get(id string) (*Game, bool) {
+func (s *Store) Get(id string) (Snapshot, bool) {
 	s.mu.RLock()
 	g, ok := s.games[id]
+	if !ok {
+		s.mu.RUnlock()
+		return Snapshot{}, false
+	}
+	snap := snapshotOf(g)
 	s.mu.RUnlock()
-	return g, ok
+	return snap, true
 }
 
-func (s *Store) SubmitGuess(ctx context.Context, id, guess string) (*Game, error) {
+func (s *Store) SubmitGuess(ctx context.Context, id, guess string) (Snapshot, error) {
 	guess = strings.ToUpper(strings.TrimSpace(guess))
 	if len(guess) != 5 || !isAlpha(guess) {
-		return nil, ErrInvalidGuess
+		return Snapshot{}, ErrInvalidGuess
 	}
 
 	ok, err := s.words.IsValidGuess(ctx, guess)
 	if err != nil {
-		return nil, err
+		return Snapshot{}, err
 	}
 	if !ok {
-		return nil, ErrInvalidWord
+		return Snapshot{}, ErrInvalidWord
 	}
 
 	s.mu.Lock()
@@ -78,10 +100,10 @@ func (s *Store) SubmitGuess(ctx context.Context, id, guess string) (*Game, error
 
 	g, ok := s.games[id]
 	if !ok {
-		return nil, ErrNotFound
+		return Snapshot{}, ErrNotFound
 	}
 	if g.Status != "playing" {
-		return nil, ErrAlreadyFinished
+		return Snapshot{}, ErrAlreadyFinished
 	}
 
 	scoring := Score(guess, g.Target)
@@ -101,7 +123,24 @@ func (s *Store) SubmitGuess(ctx context.Context, id, guess string) (*Game, error
 		g.Status = "lost"
 	}
 
-	return g, nil
+	return snapshotOf(g), nil
+}
+
+// snapshotOf builds a Snapshot from a *Game. Must be called under the store lock.
+func snapshotOf(g *Game) Snapshot {
+	guesses := make([]ScoredGuess, len(g.Guesses))
+	copy(guesses, g.Guesses)
+	snap := Snapshot{
+		ID:         g.ID,
+		Length:     len(g.Target),
+		MaxGuesses: g.MaxGuesses,
+		Status:     g.Status,
+		Guesses:    guesses,
+	}
+	if g.Status == "won" || g.Status == "lost" {
+		snap.Target = g.Target
+	}
+	return snap
 }
 
 func isAlpha(s string) bool {

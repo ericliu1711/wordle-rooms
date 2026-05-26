@@ -14,7 +14,7 @@ const STATUS_LABEL: Record<string, string> = {
 const STATUS_COLOR: Record<string, string> = {
   playing: "#818384",
   solved:  "#538d4e",
-  out:     "#b59f3b",
+  out:     "#7a3535", // dark muted red — "failure" without being jarring; yellow is reserved for "wrong position"
 };
 
 export default function Scoreboard({ players, status }: ScoreboardProps) {

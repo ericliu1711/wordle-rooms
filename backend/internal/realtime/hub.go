@@ -48,36 +48,43 @@ func (h *Hub) Unregister(c *Client) {
 
 // Broadcast pushes the current room state to every connected client.
 // Each client receives a personalized PlayerView snapshot (spoiler rules apply).
+// The view is built per-client under the store's read lock so no *Room pointer
+// escapes the lock boundary.
 // If a client's send channel is full, it is evicted (backpressure).
-// Broadcast failures for individual clients do not affect others.
 func (h *Hub) Broadcast() {
-	r, err := h.rooms.Get(h.roomCode)
-	if err != nil {
-		return // room gone — safe to ignore
+	// Snapshot client tokens while holding the hub lock, then release.
+	h.mu.RLock()
+	clients := make([]*Client, 0, len(h.clients))
+	for c := range h.clients {
+		clients = append(clients, c)
 	}
+	h.mu.RUnlock()
 
-	h.mu.Lock()
 	var toEvict []*Client
 	sent := 0
-	for c := range h.clients {
-		payload := buildPayload(r, c.token)
+
+	for _, c := range clients {
+		payload := h.buildPayload(c.token)
 		if payload == nil {
+			continue
+		}
+		h.mu.Lock()
+		if _, still := h.clients[c]; !still {
+			// Client disconnected between snapshot and send — skip.
+			h.mu.Unlock()
 			continue
 		}
 		select {
 		case c.send <- payload:
 			sent++
 		default:
-			// Channel full: mark for eviction and remove from hub now so no
-			// future broadcast sends to this client.
 			toEvict = append(toEvict, c)
 			delete(h.clients, c)
 		}
+		h.mu.Unlock()
 	}
-	h.mu.Unlock()
 
-	// Close evicted clients' send channels outside the lock. This signals
-	// WritePump to send a close frame and exit, which triggers Client.close().
+	// Close evicted clients' send channels outside the lock.
 	for _, c := range toEvict {
 		close(c.send)
 		slog.Warn("ws dropped slow client", "room", h.roomCode)
@@ -94,11 +101,7 @@ func (h *Hub) Empty() bool {
 
 // sendToOne pushes the current room state to a single client (non-blocking).
 func (h *Hub) sendToOne(c *Client) {
-	r, err := h.rooms.Get(h.roomCode)
-	if err != nil {
-		return
-	}
-	payload := buildPayload(r, c.token)
+	payload := h.buildPayload(c.token)
 	if payload == nil {
 		return
 	}
@@ -108,18 +111,23 @@ func (h *Hub) sendToOne(c *Client) {
 	}
 }
 
-// wsEnvelope is the single wire format for all server→client messages.
-// The type field enables forward-compatible extension in Phase 6+.
-type wsEnvelope struct {
-	Type string `json:"type"`
-	Data any    `json:"data"`
-}
-
-func buildPayload(r *room.Room, token string) []byte {
-	view := room.PlayerView(r, token)
+// buildPayload builds the per-client wire payload. The view is built under the
+// store's read lock so no *Room pointer escapes the lock boundary.
+func (h *Hub) buildPayload(token string) []byte {
+	view, err := h.rooms.GetView(h.roomCode, token)
+	if err != nil {
+		return nil // room gone — safe to ignore
+	}
 	b, err := json.Marshal(wsEnvelope{Type: "room_state", Data: view})
 	if err != nil {
 		return nil
 	}
 	return b
+}
+
+// wsEnvelope is the single wire format for all server→client messages.
+// The type field enables forward-compatible extension in Phase 6+.
+type wsEnvelope struct {
+	Type string `json:"type"`
+	Data any    `json:"data"`
 }

@@ -45,6 +45,8 @@ func writeRoomErr(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusForbidden, "only the host can do that", "not_host")
 	case errors.Is(err, room.ErrCannotStart):
 		writeErr(w, http.StatusConflict, "cannot start round in this state", "cannot_start")
+	case errors.Is(err, room.ErrNotEnoughPlayers):
+		writeErr(w, http.StatusConflict, "need at least 2 players to start", "not_enough_players")
 	case errors.Is(err, room.ErrNotInRoom):
 		writeErr(w, http.StatusForbidden, "you are not in this room", "not_in_room")
 	case errors.Is(err, room.ErrNotYourTurn):
@@ -52,7 +54,7 @@ func writeRoomErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, room.ErrCannotNextRound):
 		writeErr(w, http.StatusConflict, "cannot start next round in this state", "cannot_next_round")
 	case errors.Is(err, game.ErrInvalidWord):
-		writeErr(w, http.StatusBadRequest, "not in word list", "not_a_word")
+		writeErr(w, http.StatusUnprocessableEntity, "not in word list", "not_a_word")
 	case errors.Is(err, game.ErrInvalidGuess):
 		writeErr(w, http.StatusBadRequest, "guess must be exactly 5 letters", "invalid_guess")
 	default:
@@ -71,16 +73,16 @@ func (h *roomHandler) createRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rm, token, err := h.store.Create(r.Context(), body.Name)
+	view, token, err := h.store.Create(r.Context(), body.Name)
 	if err != nil {
 		writeRoomErr(w, err)
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"code":        rm.Code,
+		"code":        view.Code,
 		"playerToken": token,
-		"state":       room.PlayerView(rm, token),
+		"state":       view,
 	})
 }
 
@@ -95,7 +97,7 @@ func (h *roomHandler) joinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rm, token, err := h.store.Join(r.Context(), code, body.Name)
+	view, token, err := h.store.Join(r.Context(), code, body.Name)
 	if err != nil {
 		writeRoomErr(w, err)
 		return
@@ -104,7 +106,7 @@ func (h *roomHandler) joinRoom(w http.ResponseWriter, r *http.Request) {
 	h.realtime.BroadcastRoom(code)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"playerToken": token,
-		"state":       room.PlayerView(rm, token),
+		"state":       view,
 	})
 }
 
@@ -112,13 +114,13 @@ func (h *roomHandler) getRoom(w http.ResponseWriter, r *http.Request) {
 	code := roomCode(r)
 	token := playerToken(r) // optional
 
-	rm, err := h.store.Get(code)
+	view, err := h.store.GetView(code, token)
 	if err != nil {
 		writeRoomErr(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, room.PlayerView(rm, token))
+	writeJSON(w, http.StatusOK, view)
 }
 
 func (h *roomHandler) startRound(w http.ResponseWriter, r *http.Request) {
@@ -129,14 +131,14 @@ func (h *roomHandler) startRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rm, err := h.store.StartRound(r.Context(), code, token)
+	view, err := h.store.StartRound(r.Context(), code, token)
 	if err != nil {
 		writeRoomErr(w, err)
 		return
 	}
 
 	h.realtime.BroadcastRoom(code)
-	writeJSON(w, http.StatusOK, room.PlayerView(rm, token))
+	writeJSON(w, http.StatusOK, view)
 }
 
 func (h *roomHandler) submitGuess(w http.ResponseWriter, r *http.Request) {
@@ -155,14 +157,14 @@ func (h *roomHandler) submitGuess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rm, err := h.store.SubmitGuess(r.Context(), code, token, body.Guess)
+	view, err := h.store.SubmitGuess(r.Context(), code, token, body.Guess)
 	if err != nil {
 		writeRoomErr(w, err)
 		return
 	}
 
 	h.realtime.BroadcastRoom(code)
-	writeJSON(w, http.StatusOK, room.PlayerView(rm, token))
+	writeJSON(w, http.StatusOK, view)
 }
 
 func (h *roomHandler) nextRound(w http.ResponseWriter, r *http.Request) {
@@ -173,12 +175,12 @@ func (h *roomHandler) nextRound(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rm, err := h.store.NextRound(r.Context(), code, token)
+	view, err := h.store.NextRound(r.Context(), code, token)
 	if err != nil {
 		writeRoomErr(w, err)
 		return
 	}
 
 	h.realtime.BroadcastRoom(code)
-	writeJSON(w, http.StatusOK, room.PlayerView(rm, token))
+	writeJSON(w, http.StatusOK, view)
 }

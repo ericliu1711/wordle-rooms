@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 // ---- types ------------------------------------------------------------------
 
@@ -124,21 +124,29 @@ function Tile({ letter, state, flipDelay, bounce, bounceDelay }: TileProps) {
   useEffect(() => {
     if (prevState.current !== state && isScored(state)) {
       if (flipDelay !== undefined) {
-        // Staggered flip animation — reveals the scored colour at the midpoint.
         const captured = prevState.current;
         prevState.current = state;
+
+        // Track all three timers so the cleanup can cancel any that are
+        // still pending if the component unmounts mid-animation.
+        let t2: ReturnType<typeof setTimeout>;
+        let t3: ReturnType<typeof setTimeout>;
+
         const t1 = setTimeout(() => {
           setPreFlipColor(captured);
           setFlipping("front");
-          const t2 = setTimeout(() => {
+          t2 = setTimeout(() => {
             setDisplayState(state);
             setFlipping("back");
-            const t3 = setTimeout(() => setFlipping(null), 250);
-            return () => clearTimeout(t3);
+            t3 = setTimeout(() => setFlipping(null), 250);
           }, 250);
-          return () => clearTimeout(t2);
         }, flipDelay);
-        return () => clearTimeout(t1);
+
+        return () => {
+          clearTimeout(t1);
+          clearTimeout(t2);
+          clearTimeout(t3);
+        };
       } else {
         // No animation window (e.g. existing guesses on mount or polling update):
         // update displayState immediately so the colour still shows.
@@ -208,6 +216,27 @@ export default function Game({ instanceKey, length, maxGuesses, guesses, status,
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const submittingRef = useRef(false);
+  // Tracks all in-flight timeouts created by handleKey so they can be cancelled on unmount.
+  const pendingTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const prevGuessesLengthRef = useRef(guesses.length);
+
+  // Cancel all pending timers when the component unmounts (e.g. on Next Round).
+  useEffect(() => {
+    return () => {
+      pendingTimers.current.forEach(clearTimeout);
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    };
+  }, []);
+
+  // If a WebSocket broadcast updates guesses while an HTTP guess submission is
+  // still in-flight, clear currentLetters before the browser paints so the typed
+  // word never flashes into the next (now-active) row.
+  useLayoutEffect(() => {
+    if (guesses.length > prevGuessesLengthRef.current && submittingRef.current) {
+      setCurrentLetters([]);
+    }
+    prevGuessesLengthRef.current = guesses.length;
+  }, [guesses.length]);
 
   const showToast = useCallback((msg: string, duration = 3000) => {
     setToast(msg);
@@ -220,7 +249,8 @@ export default function Game({ instanceKey, length, maxGuesses, guesses, status,
     if ((status === "won" || status === "solved") && guesses.length > 0) {
       const rowIdx = guesses.length - 1;
       const flipDuration = length * 250 + 600;
-      setTimeout(() => setBouncingRow(rowIdx), flipDuration);
+      const t = setTimeout(() => setBouncingRow(rowIdx), flipDuration);
+      return () => clearTimeout(t);
     }
   }, [status, guesses.length, length]);
 
@@ -240,7 +270,8 @@ export default function Game({ instanceKey, length, maxGuesses, guesses, status,
           const rowIdx = guesses.length;
           setShakingRow(rowIdx);
           showToast("Not enough letters", 1500);
-          setTimeout(() => setShakingRow(null), 400);
+          const t = setTimeout(() => setShakingRow(null), 400);
+          pendingTimers.current.push(t);
           return;
         }
 
@@ -261,13 +292,15 @@ export default function Game({ instanceKey, length, maxGuesses, guesses, status,
           // batches them into one render — prevents the duplicate-row flash.
           setCurrentLetters([]);
           onGuessConfirmed?.();
-          setTimeout(() => setJustRevealedRow(null), flipDuration);
+          const t = setTimeout(() => setJustRevealedRow(null), flipDuration);
+          pendingTimers.current.push(t);
         } catch (e) {
           setJustRevealedRow(null);
           const msg = e instanceof Error ? e.message : "Something went wrong";
           setShakingRow(rowIdx);
           showToast(msg, 1500);
-          setTimeout(() => setShakingRow(null), 400);
+          const t = setTimeout(() => setShakingRow(null), 400);
+          pendingTimers.current.push(t);
         } finally {
           submittingRef.current = false;
         }

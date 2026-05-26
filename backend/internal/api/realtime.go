@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"os"
@@ -12,15 +13,9 @@ import (
 	"github.com/placeholder/wordle-rooms/internal/room"
 )
 
-type realtimeHandler struct {
-	registry *realtime.HubRegistry
-	rooms    *room.Store
-}
-
-// newUpgrader returns a Upgrader that allows only the configured CORS origin.
-// Production should use a strict allowlist; CORS_ORIGIN env var (default
-// http://localhost:3000) covers local development.
-func newUpgrader() websocket.Upgrader {
+// wsUpgrader is created once at package init from the CORS_ORIGIN env var.
+// Production should use a strict allowlist; the default covers local development.
+var wsUpgrader = func() websocket.Upgrader {
 	allowed := os.Getenv("CORS_ORIGIN")
 	if allowed == "" {
 		allowed = "http://localhost:3000"
@@ -32,6 +27,11 @@ func newUpgrader() websocket.Upgrader {
 			return r.Header.Get("Origin") == allowed
 		},
 	}
+}()
+
+type realtimeHandler struct {
+	registry *realtime.HubRegistry
+	rooms    *room.Store
 }
 
 func (h *realtimeHandler) wsUpgrade(w http.ResponseWriter, r *http.Request) {
@@ -43,19 +43,16 @@ func (h *realtimeHandler) wsUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rm, err := h.rooms.Get(code)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "room not found", "not_found")
+	if err := h.rooms.ValidatePlayer(code, token); err != nil {
+		if errors.Is(err, room.ErrRoomNotFound) {
+			writeErr(w, http.StatusNotFound, "room not found", "not_found")
+		} else {
+			writeErr(w, http.StatusForbidden, "forbidden", "forbidden")
+		}
 		return
 	}
 
-	if _, ok := rm.Players[token]; !ok {
-		writeErr(w, http.StatusForbidden, "forbidden", "forbidden")
-		return
-	}
-
-	upgrader := newUpgrader()
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		// upgrader already wrote the HTTP error; just log.
 		slog.Warn("ws upgrade failed", "room", code, "err", err)
