@@ -12,6 +12,11 @@ frontend/out/
 
 # Environment
 .env
+.env.local
+*.env.local
+
+# Logs
+*.log
 
 # OS
 .DS_Store

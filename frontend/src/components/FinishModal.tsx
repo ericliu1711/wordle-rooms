@@ -1,4 +1,5 @@
 import { RankingEntry, RoomPlayer, RoomStatus } from "@/lib/api";
+import { CheckIcon, CrossIcon } from "@/components/Icons";
 
 interface FinishModalProps {
   myPlayer: RoomPlayer;
@@ -109,8 +110,14 @@ export default function FinishModal({
             {players.map((p) => (
               <div key={p.name} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: p.status === "playing" ? "#818384" : "#ffffff" }}>
                 <span>{p.name}{p.isYou && <span style={{ color: "#818384", marginLeft: 4 }}>(you)</span>}</span>
-                <span style={{ color: p.status === "solved" ? "#538d4e" : p.status === "out" ? "#b59f3b" : "#818384" }}>
-                  {p.status === "solved" ? `✓ ${p.guessCount}` : p.status === "out" ? "✗" : `${p.guessCount} guesses`}
+                <span style={{ color: p.status === "solved" ? "#538d4e" : p.status === "out" ? "#b59f3b" : "#818384", display: "flex", alignItems: "center", gap: 4 }}>
+                  {p.status === "solved" ? (
+                    <><CheckIcon size={12} color="#538d4e" />{p.guessCount}</>
+                  ) : p.status === "out" ? (
+                    <CrossIcon size={12} color="#b59f3b" />
+                  ) : (
+                    `${p.guessCount} guesses`
+                  )}
                 </span>
               </div>
             ))}

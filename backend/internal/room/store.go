@@ -16,7 +16,6 @@ type wordRepo interface {
 	IsValidGuess(ctx context.Context, word string) (bool, error)
 }
 
-// TODO V2: per-room mutex if global mutex becomes contended under high concurrent room load.
 type Store struct {
 	mu    sync.RWMutex
 	rooms map[string]*Room

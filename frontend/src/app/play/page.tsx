@@ -1,7 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, GameState, createGame, getGame, submitGuess } from "@/lib/api";
 import Game, { ScoredGuess } from "@/components/Game";
 

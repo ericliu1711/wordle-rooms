@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { BackChevron } from "@/components/Icons";
 import {
   ApiError, RoomState, RoomPlayer,
   getRoom, joinRoom, startRound, submitRoomGuess, nextRound,
@@ -24,6 +26,7 @@ export default function RoomPage() {
   const [tokenReady, setTokenReady] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setToken(getRoomToken(code));
     setTokenReady(true);
   }, [code]);
@@ -36,6 +39,7 @@ export default function RoomPage() {
   const [initialLoading, setInitialLoading] = useState(true);
   useEffect(() => {
     if (!tokenReady) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!token) { setInitialLoading(false); return; }
     getRoom(code, token)
       .then(applyServerResponse)
@@ -50,6 +54,7 @@ export default function RoomPage() {
 
   // Action loading states
   const [startLoading, setStartLoading] = useState(false);
+  const [startAttempted, setStartAttempted] = useState(false);
   const [nextRoundLoading, setNextRoundLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -60,6 +65,9 @@ export default function RoomPage() {
 
   // Modal: show when myPlayer is done (solved/out)
   const [modalDismissed, setModalDismissed] = useState(false);
+
+  // Leave confirmation: shown when back is clicked mid-game
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
 
   // Track round identity — reset modalDismissed when a new round starts
   const prevStartedAt = useRef<string | null>(null);
@@ -81,6 +89,7 @@ export default function RoomPage() {
   useEffect(() => {
     if (tokenStale) {
       clearRoomToken(code);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setToken(null);
     }
   }, [tokenStale, code]);
@@ -99,7 +108,7 @@ export default function RoomPage() {
 
   // ---- actions --------------------------------------------------------------
 
-  async function handleJoin(e: React.FormEvent) {
+  async function handleJoin(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setJoinError(null);
     if (!/^[A-Z]{4}$/.test(code)) { setJoinError("Room codes are 4 letters (A–Z)."); return; }
@@ -127,6 +136,8 @@ export default function RoomPage() {
 
   async function handleStart() {
     if (!token) return;
+    setStartAttempted(true);
+    if (room && room.players.length < 2) return;
     setActionError(null);
     setStartLoading(true);
     try {
@@ -181,6 +192,15 @@ export default function RoomPage() {
     navigator.clipboard.writeText(window.location.href).catch(() => {});
   }
 
+  function handleBack() {
+    const midGame = room?.status === "playing" && myPlayer?.status === "playing";
+    if (midGame) {
+      setShowLeaveConfirm(true);
+    } else {
+      router.push("/");
+    }
+  }
+
   // ---- render ---------------------------------------------------------------
 
   const pageStyle: React.CSSProperties = {
@@ -229,7 +249,9 @@ export default function RoomPage() {
           <button type="submit" disabled={joining || !joinName.trim()} style={primaryBtn}>
             {joining ? "Joining…" : "Join Room"}
           </button>
-          <a href="/" style={{ color: "#818384", fontSize: 13, textAlign: "center", textDecoration: "none" }}>← Back</a>
+          <Link href="/" style={{ color: "#818384", fontSize: 14, fontWeight: 600, textAlign: "center", textDecoration: "none", padding: "10px 0" }}>
+            Back
+          </Link>
         </form>
       </main>
     );
@@ -241,8 +263,9 @@ export default function RoomPage() {
   if (room.status === "lobby") {
     return (
       <main style={pageStyle}>
-        <Header />
+        <Header onBack={handleBack} />
         <ReconnectingBanner show={isReconnecting} />
+        {showLeaveConfirm && <LeaveConfirmModal onLeave={() => router.push("/")} onStay={() => setShowLeaveConfirm(false)} />}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 24, width: "100%", maxWidth: 400 }}>
           <div style={{ textAlign: "center" }}>
             <p style={{ color: "#818384", fontSize: 12, letterSpacing: 2, marginBottom: 4, textTransform: "uppercase" }}>Room code</p>
@@ -269,15 +292,13 @@ export default function RoomPage() {
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, width: "100%" }}>
               <button
                 onClick={handleStart}
-                disabled={startLoading || room.players.length < 2}
+                disabled={startLoading}
                 style={primaryBtn}
               >
                 {startLoading ? "Starting…" : "Start Round"}
               </button>
-              {room.players.length < 2 && (
-                <p style={{ color: "#818384", fontSize: 13, margin: 0 }}>
-                  Waiting for at least one more player.
-                </p>
+              {startAttempted && room.players.length < 2 && (
+                <p style={errorStyle}>Need at least one more player to start.</p>
               )}
               {actionError && <p style={errorStyle}>{actionError}</p>}
             </div>
@@ -306,8 +327,9 @@ export default function RoomPage() {
 
   return (
     <main style={pageStyle}>
-      <Header />
+      <Header onBack={handleBack} />
       <ReconnectingBanner show={isReconnecting} />
+      {showLeaveConfirm && <LeaveConfirmModal onLeave={() => router.push("/")} onStay={() => setShowLeaveConfirm(false)} />}
 
       {showModal && myPlayer && (
         <FinishModal
@@ -327,6 +349,7 @@ export default function RoomPage() {
         {/* Game grid */}
         <div style={{ flex: "0 0 auto" }}>
           <Game
+            key={roundKey}
             instanceKey={roundKey}
             length={room.length}
             maxGuesses={room.maxGuesses}
@@ -374,15 +397,45 @@ export default function RoomPage() {
 
 // ---- sub-components ---------------------------------------------------------
 
-function Header() {
+function Header({ onBack }: { onBack: () => void }) {
   return (
-    <h1 style={{
-      color: "#ffffff", fontSize: 24, fontWeight: 700, letterSpacing: 4,
-      borderBottom: "1px solid #3a3a3c", width: "100%", maxWidth: 720,
-      textAlign: "center", paddingBottom: 12, marginBottom: 20,
+    <div style={{
+      position: "relative", width: "100%", maxWidth: 720,
+      borderBottom: "1px solid #3a3a3c", paddingBottom: 12, marginBottom: 20,
+      display: "flex", alignItems: "center", justifyContent: "center",
     }}>
-      WORDLE ROOMS
-    </h1>
+      <button onClick={onBack} className="back-btn" style={{ position: "absolute", left: 0, background: "none", border: "none", cursor: "pointer", padding: 4 }} aria-label="Back">
+        <BackChevron size={20} />
+      </button>
+      <h1 style={{ color: "#ffffff", fontSize: 24, fontWeight: 700, letterSpacing: 4, margin: 0 }}>
+        WORDLE ROOMS
+      </h1>
+    </div>
+  );
+}
+
+function LeaveConfirmModal({ onLeave, onStay }: { onLeave: () => void; onStay: () => void }) {
+  return (
+    <>
+      <div onClick={onStay} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 40 }} />
+      <div style={{
+        position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+        zIndex: 50, background: "#1a1a1b", border: "1px solid #3a3a3c", borderRadius: 8,
+        padding: "28px 32px", minWidth: 280, maxWidth: 360, width: "90vw",
+        display: "flex", flexDirection: "column", gap: 16, textAlign: "center",
+      }}>
+        <p style={{ color: "#ffffff", fontWeight: 700, fontSize: 18, margin: 0 }}>Leave game?</p>
+        <p style={{ color: "#818384", fontSize: 14, margin: 0 }}>The round is still in progress. You won&apos;t be able to rejoin.</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <button onClick={onLeave} style={{ background: "#7a3535", color: "#ffffff", border: "none", borderRadius: 4, padding: "12px 0", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>
+            Leave
+          </button>
+          <button onClick={onStay} style={{ background: "transparent", color: "#818384", border: "none", fontSize: 13, cursor: "pointer", padding: "4px 0" }}>
+            Stay in game
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 

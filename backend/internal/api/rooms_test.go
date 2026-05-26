@@ -56,15 +56,6 @@ func newRouter(t *testing.T) http.Handler {
 	return api.NewRouter(gameStore, roomStore, registry)
 }
 
-type apiResp struct {
-	Code        string          `json:"code"`        // room code (create)
-	PlayerToken string          `json:"playerToken"` // create / join
-	State       json.RawMessage `json:"state"`       // room state
-	Error       string          `json:"error"`
-	ErrorCode   string          `json:"code"` // note: same JSON key as room code — read via rawBody
-	Status      string          `json:"status"`
-}
-
 // do executes one request against the router and returns status + parsed body.
 func do(t *testing.T, router http.Handler, method, path, token, body string) (int, map[string]any) {
 	t.Helper()

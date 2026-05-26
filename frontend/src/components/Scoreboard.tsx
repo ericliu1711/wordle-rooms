@@ -1,4 +1,5 @@
 import { RoomPlayer, RoomStatus } from "@/lib/api";
+import { CheckIcon, CrossIcon } from "@/components/Icons";
 
 interface ScoreboardProps {
   players: RoomPlayer[];
@@ -40,12 +41,14 @@ export default function Scoreboard({ players, status }: ScoreboardProps) {
               {p.isYou && <span style={{ color: "#818384", fontWeight: 400, fontSize: 12, marginLeft: 4 }}>(you)</span>}
               {p.isHost && <span style={{ color: "#538d4e", fontSize: 11, marginLeft: 6, fontWeight: 700 }}>HOST</span>}
             </span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: STATUS_COLOR[p.status] ?? "#818384", whiteSpace: "nowrap" }}>
-              {p.status === "solved"
-                ? `✓ ${p.guessCount}`
-                : status === "finished" && p.status === "out"
-                ? `✗`
-                : STATUS_LABEL[p.status] ?? p.status}
+            <span style={{ fontSize: 12, fontWeight: 600, color: STATUS_COLOR[p.status] ?? "#818384", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4 }}>
+              {p.status === "solved" ? (
+                <><CheckIcon size={12} color={STATUS_COLOR.solved} />{p.guessCount}</>
+              ) : status === "finished" && p.status === "out" ? (
+                <CrossIcon size={12} color={STATUS_COLOR.out} />
+              ) : (
+                STATUS_LABEL[p.status] ?? p.status
+              )}
             </span>
           </div>
         ))}

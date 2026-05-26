@@ -69,3 +69,14 @@ body {
 .tile-flip-back {
   animation: tile-flip-back 250ms ease-out forwards;
 }
+
+.back-btn {
+  color: #818384;
+  transition: color 120ms ease;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+}
+.back-btn:hover {
+  color: #ffffff;
+}

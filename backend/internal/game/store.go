@@ -35,7 +35,6 @@ type Snapshot struct {
 	Target     string // non-empty only when game is over
 }
 
-// TODO: games leak memory until restart — add TTL sweeping in a future phase.
 type Store struct {
 	mu    sync.RWMutex
 	games map[string]*Game

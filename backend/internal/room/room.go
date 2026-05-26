@@ -28,7 +28,7 @@ type Room struct {
 	Status     Status
 	Length     int
 	MaxGuesses int
-	Target     string     // empty in lobby, hidden while playing, exposed when finished
+	Target     string             // empty in lobby, hidden while playing, exposed when finished
 	Players    map[string]*Player // keyed by player token
 	StartedAt  *time.Time
 	FinishedAt *time.Time

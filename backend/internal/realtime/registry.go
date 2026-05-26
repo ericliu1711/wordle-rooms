@@ -11,8 +11,6 @@ import (
 // HubRegistry lazily creates and cleans up Hubs keyed by room code.
 // A Hub is created on the first client connection and removed when the last
 // client disconnects.
-//
-// TODO V2: sharded locks if hub creation becomes contended under many concurrent rooms.
 type HubRegistry struct {
 	mu    sync.Mutex
 	hubs  map[string]*Hub

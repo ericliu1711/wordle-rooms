@@ -126,35 +126,36 @@ function Tile({ letter, state, flipDelay, bounce, bounceDelay }: TileProps) {
       if (flipDelay !== undefined) {
         const captured = prevState.current;
         prevState.current = state;
-
-        // Track all three timers so the cleanup can cancel any that are
-        // still pending if the component unmounts mid-animation.
-        let t2: ReturnType<typeof setTimeout>;
-        let t3: ReturnType<typeof setTimeout>;
-
         const t1 = setTimeout(() => {
           setPreFlipColor(captured);
           setFlipping("front");
-          t2 = setTimeout(() => {
-            setDisplayState(state);
-            setFlipping("back");
-            t3 = setTimeout(() => setFlipping(null), 250);
-          }, 250);
         }, flipDelay);
-
-        return () => {
-          clearTimeout(t1);
-          clearTimeout(t2);
-          clearTimeout(t3);
-        };
+        return () => clearTimeout(t1);
       } else {
-        // No animation window (e.g. existing guesses on mount or polling update):
-        // update displayState immediately so the colour still shows.
+        // No animation window (e.g. existing guesses on mount).
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setDisplayState(state);
       }
+    } else if (flipping === null && isScored(state) && displayState !== state) {
+      // t1 was cancelled before firing (justRevealedRow cleared while pending):
+      // prevState already matches state but displayState is stale — sync now.
+      setDisplayState(state);
     }
     prevState.current = state;
-  }, [state, flipDelay]);
+  }, [state, flipDelay, flipping, displayState]);
+
+  // Advance the flip sequence when each CSS animation phase ends.
+  // Using onAnimationEnd instead of a second setTimeout avoids the race
+  // where t2 could be cancelled mid-flip, leaving the tile stuck at
+  // rotateX(-90deg) with an invisible letter.
+  function handleAnimationEnd() {
+    if (flipping === "front") {
+      setDisplayState(state);
+      setFlipping("back");
+    } else if (flipping === "back") {
+      setFlipping(null);
+    }
+  }
 
   const colorKey: TileState =
     flipping === "front" ? preFlipColor
@@ -170,6 +171,7 @@ function Tile({ letter, state, flipDelay, bounce, bounceDelay }: TileProps) {
   return (
     <div
       className={[popClass, bounce ? "tile-bounce" : "", flipping === "front" ? "tile-flip-front" : "", flipping === "back" ? "tile-flip-back" : ""].filter(Boolean).join(" ")}
+      onAnimationEnd={handleAnimationEnd}
       style={{
         width: 62, height: 62,
         border: `2px solid ${colors.border}`,
@@ -223,6 +225,7 @@ export default function Game({ instanceKey, length, maxGuesses, guesses, status,
   // Cancel all pending timers when the component unmounts (e.g. on Next Round).
   useEffect(() => {
     return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       pendingTimers.current.forEach(clearTimeout);
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
