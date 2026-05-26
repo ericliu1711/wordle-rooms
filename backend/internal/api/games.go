@@ -72,7 +72,11 @@ var onlyLetters = regexp.MustCompile(`^[A-Za-z]+$`)
 // ---- handlers ---------------------------------------------------------------
 
 func (h *handler) createGame(w http.ResponseWriter, r *http.Request) {
-	g := h.store.Create(game.RandomTarget(), 6)
+	g, err := h.store.Create(r.Context(), 6)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "internal error", "internal_error")
+		return
+	}
 	writeJSON(w, http.StatusCreated, buildResp(g))
 }
 
@@ -105,9 +109,11 @@ func (h *handler) submitGuess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	g, err := h.store.SubmitGuess(id, guess)
+	g, err := h.store.SubmitGuess(r.Context(), id, guess)
 	if err != nil {
 		switch {
+		case errors.Is(err, game.ErrInvalidWord):
+			writeErr(w, http.StatusBadRequest, "not in word list", "not_a_word")
 		case errors.Is(err, game.ErrNotFound):
 			writeErr(w, http.StatusNotFound, "game not found", "not_found")
 		case errors.Is(err, game.ErrAlreadyFinished):

@@ -1,6 +1,9 @@
 .DEFAULT_GOAL := help
 
-.PHONY: up down backend frontend db tidy test help
+-include .env
+export
+
+.PHONY: up down backend frontend db db-reset tidy test help
 
 up: ## Start Postgres in Docker
 	docker compose up -d
@@ -12,10 +15,13 @@ backend: ## Run the Go backend (hot-reload not included)
 	cd backend && go run ./cmd/server
 
 frontend: ## Run the Next.js dev server
-	cd frontend && pnpm dev
+	cd frontend && env -u PORT pnpm dev
 
 db: ## Open a psql shell in the running Postgres container
 	docker compose exec postgres psql -U wordle -d wordle
+
+db-reset: ## Drop and recreate the wordle database (re-runs migrations + seed on next start)
+	docker compose exec postgres psql -U wordle -d postgres -c "DROP DATABASE IF EXISTS wordle; CREATE DATABASE wordle;"
 
 test: ## Run Go unit tests
 	cd backend && go test ./...

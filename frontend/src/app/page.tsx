@@ -307,7 +307,11 @@ export default function Home() {
           }
         } catch (e) {
           if (e instanceof ApiError) {
-            if (e.code === "invalid_guess" || e.code === "bad_request") {
+            if (e.code === "not_a_word") {
+              setShakingRow(rowIdx);
+              showToast("Not in word list", 1500);
+              setTimeout(() => setShakingRow(null), 400);
+            } else if (e.code === "invalid_guess" || e.code === "bad_request") {
               showToast("That guess isn't valid");
             } else if (e.code === "not_found") {
               showToast("Game not found, started a new one");

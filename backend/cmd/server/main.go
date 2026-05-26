@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/placeholder/wordle-rooms/internal/api"
+	"github.com/placeholder/wordle-rooms/internal/db"
 	"github.com/placeholder/wordle-rooms/internal/game"
+	"github.com/placeholder/wordle-rooms/internal/words"
 )
 
 func main() {
@@ -19,8 +21,31 @@ func main() {
 		port = "8080"
 	}
 
-	store := game.NewStore()
-	router := api.NewRouter(store)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pool, err := db.NewPool(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		slog.Error("database connection failed", "err", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+	slog.Info("connected to postgres")
+
+	if err := db.Migrate(pool); err != nil {
+		slog.Error("migrations failed", "err", err)
+		os.Exit(1)
+	}
+
+	wordsRepo := words.NewRepository(pool)
+
+	if err := words.Seed(ctx, pool); err != nil {
+		slog.Error("seed failed", "err", err)
+		os.Exit(1)
+	}
+
+	gameStore := game.NewStore(wordsRepo)
+	router := api.NewRouter(gameStore)
 
 	srv := &http.Server{
 		Addr:    ":" + port,
@@ -41,10 +66,10 @@ func main() {
 	<-stop
 	slog.Info("shutting down")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	shutCtx, shutCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutCancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutCtx); err != nil {
 		slog.Error("shutdown error", "err", err)
 	}
 	slog.Info("stopped")
