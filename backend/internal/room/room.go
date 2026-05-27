@@ -17,9 +17,11 @@ const (
 type PlayerStatus string
 
 const (
-	PlayerPlaying PlayerStatus = "playing"
-	PlayerSolved  PlayerStatus = "solved"
-	PlayerOut     PlayerStatus = "out"
+	PlayerPlaying      PlayerStatus = "playing"
+	PlayerSolved       PlayerStatus = "solved"
+	PlayerOut          PlayerStatus = "out"
+	PlayerDisconnected PlayerStatus = "disconnected"
+	PlayerWaiting      PlayerStatus = "waiting" // reconnected after round ended; will play next round
 )
 
 type Room struct {
@@ -36,10 +38,11 @@ type Room struct {
 }
 
 type Player struct {
-	Token    string
-	Name     string
-	JoinedAt time.Time
-	Guesses  []game.ScoredGuess
-	Status   PlayerStatus
-	SolvedAt *time.Time
+	Token          string
+	Name           string
+	JoinedAt       time.Time
+	Guesses        []game.ScoredGuess
+	Status         PlayerStatus
+	SolvedAt       *time.Time
+	DisconnectedAt *time.Time // non-nil when Status == PlayerDisconnected
 }

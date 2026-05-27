@@ -46,6 +46,7 @@ func NewRouter(gameStore *game.Store, roomStore *room.Store, registry *realtime.
 	r.Post("/api/rooms/{code}/start", rh.startRound)
 	r.Post("/api/rooms/{code}/guesses", rh.submitGuess)
 	r.Post("/api/rooms/{code}/next-round", rh.nextRound)
+	r.Post("/api/rooms/{code}/leave", rh.leaveRoom)
 
 	// WebSocket upgrade (Phase 5)
 	wh := &realtimeHandler{registry: registry, rooms: roomStore}

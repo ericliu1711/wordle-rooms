@@ -167,6 +167,23 @@ func (h *roomHandler) submitGuess(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, view)
 }
 
+func (h *roomHandler) leaveRoom(w http.ResponseWriter, r *http.Request) {
+	code := roomCode(r)
+	token := playerToken(r)
+	if token == "" {
+		writeErr(w, http.StatusUnauthorized, "missing player token", "missing_token")
+		return
+	}
+
+	if err := h.store.Leave(code, token); err != nil {
+		writeRoomErr(w, err)
+		return
+	}
+
+	h.realtime.BroadcastRoom(code)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *roomHandler) nextRound(w http.ResponseWriter, r *http.Request) {
 	code := roomCode(r)
 	token := playerToken(r)

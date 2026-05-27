@@ -32,6 +32,7 @@ func (c *Client) close() {
 	c.once.Do(func() {
 		c.hub.Unregister(c)
 		c.conn.Close()
+		c.registry.OnClientDisconnect(c.roomCode, c.token)
 		c.registry.CleanupIfEmpty(c.roomCode)
 	})
 }
