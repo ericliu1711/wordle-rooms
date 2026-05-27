@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { BackChevron } from "@/components/Icons";
 import {
   ApiError, RoomState, RoomPlayer,
-  getRoom, joinRoom, startRound, submitRoomGuess, nextRound,
+  getRoom, joinRoom, startRound, submitRoomGuess, nextRound, leaveRoom,
 } from "@/lib/api";
 import { getRoomToken, setRoomToken, clearRoomToken } from "@/lib/tokens";
 import { useRoomSocket } from "@/lib/useRoomSocket";
@@ -41,11 +41,18 @@ export default function RoomPage() {
     if (!tokenReady) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!token) { setInitialLoading(false); return; }
+    let redirecting = false;
     getRoom(code, token)
       .then(applyServerResponse)
-      .catch(() => { /* WS error handling covers failures */ })
-      .finally(() => setInitialLoading(false));
-  }, [tokenReady, token, code, applyServerResponse]);
+      .catch((err) => {
+        if (err instanceof ApiError && err.code === "not_found") {
+          redirecting = true;
+          router.push("/?roomGone=1");
+        }
+        // Other failures: leave loading up and let WS error handling take over
+      })
+      .finally(() => { if (!redirecting) setInitialLoading(false); });
+  }, [tokenReady, token, code, applyServerResponse, router]);
 
   // Join form state
   const [joinName, setJoinName] = useState("");
@@ -197,8 +204,16 @@ export default function RoomPage() {
     if (midGame) {
       setShowLeaveConfirm(true);
     } else {
-      router.push("/");
+      handleLeaveConfirmed();
     }
+  }
+
+  async function handleLeaveConfirmed() {
+    if (token) {
+      try { await leaveRoom(code, token); } catch { /* navigate regardless */ }
+    }
+    clearRoomToken(code);
+    router.push("/");
   }
 
   // ---- render ---------------------------------------------------------------
@@ -265,7 +280,8 @@ export default function RoomPage() {
       <main style={pageStyle}>
         <Header onBack={handleBack} />
         <ReconnectingBanner show={isReconnecting} />
-        {showLeaveConfirm && <LeaveConfirmModal onLeave={() => router.push("/")} onStay={() => setShowLeaveConfirm(false)} />}
+        <HostAwayBanner show={!isReconnecting && (room?.players.find(p => p.isHost)?.status === "disconnected") === true} />
+        {showLeaveConfirm && <LeaveConfirmModal onLeave={handleLeaveConfirmed} onStay={() => setShowLeaveConfirm(false)} />}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 24, width: "100%", maxWidth: 400 }}>
           <div style={{ textAlign: "center" }}>
             <p style={{ color: "#818384", fontSize: 12, letterSpacing: 2, marginBottom: 4, textTransform: "uppercase" }}>Room code</p>
@@ -329,7 +345,7 @@ export default function RoomPage() {
     <main style={pageStyle}>
       <Header onBack={handleBack} />
       <ReconnectingBanner show={isReconnecting} />
-      {showLeaveConfirm && <LeaveConfirmModal onLeave={() => router.push("/")} onStay={() => setShowLeaveConfirm(false)} />}
+      {showLeaveConfirm && <LeaveConfirmModal onLeave={handleLeaveConfirmed} onStay={() => setShowLeaveConfirm(false)} />}
 
       {showModal && myPlayer && (
         <FinishModal
@@ -436,6 +452,21 @@ function LeaveConfirmModal({ onLeave, onStay }: { onLeave: () => void; onStay: (
         </div>
       </div>
     </>
+  );
+}
+
+function HostAwayBanner({ show }: { show: boolean }) {
+  if (!show) return null;
+  return (
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0,
+      background: "#3a3a3c", color: "#818384",
+      textAlign: "center", padding: "8px 16px",
+      fontWeight: 700, fontSize: 13, letterSpacing: 1,
+      zIndex: 100,
+    }}>
+      HOST IS AWAY
+    </div>
   );
 }
 

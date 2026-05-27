@@ -97,10 +97,19 @@ export function useRoomSocket(
 
     connect();
 
+    // When the browser restores the page from bfcache (tab close + Cmd+Shift+T),
+    // React effects don't re-run and `cancelled` is still true from cleanup, so
+    // the dead WS never reconnects. A full reload is the cleanest recovery.
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) window.location.reload();
+    };
+    window.addEventListener("pageshow", onPageShow);
+
     return () => {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (ws) ws.close(1000); // clean close; onclose won't reconnect because cancelled=true
+      window.removeEventListener("pageshow", onPageShow);
     };
   }, [code, token]);
 
