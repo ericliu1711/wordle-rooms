@@ -15,7 +15,7 @@ export type GameState = {
 // ---- room types -------------------------------------------------------------
 
 export type RoomStatus = "lobby" | "playing" | "finished";
-export type PlayerStatus = "playing" | "solved" | "out";
+export type PlayerStatus = "playing" | "solved" | "out" | "disconnected" | "waiting";
 
 export type RoomPlayer = {
   name: string;
@@ -146,6 +146,13 @@ export function submitRoomGuess(code: string, token: string, guess: string): Pro
 
 export function nextRound(code: string, token: string): Promise<RoomState> {
   return request<RoomState>(`/api/rooms/${code}/next-round`, {
+    method: "POST",
+    headers: withToken(token),
+  });
+}
+
+export function leaveRoom(code: string, token: string): Promise<void> {
+  return request<void>(`/api/rooms/${code}/leave`, {
     method: "POST",
     headers: withToken(token),
   });

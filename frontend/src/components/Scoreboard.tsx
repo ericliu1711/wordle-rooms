@@ -7,15 +7,19 @@ interface ScoreboardProps {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  playing: "Playing",
-  solved:  "Solved",
-  out:     "Out",
+  playing:      "Playing",
+  solved:       "Solved",
+  out:          "Out",
+  disconnected: "Away",
+  waiting:      "Waiting",
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  playing: "#818384",
-  solved:  "#538d4e",
-  out:     "#7a3535", // dark muted red — "failure" without being jarring; yellow is reserved for "wrong position"
+  playing:      "#818384",
+  solved:       "#538d4e",
+  out:          "#7a3535",
+  disconnected: "#3a3a3c",
+  waiting:      "#818384",
 };
 
 export default function Scoreboard({ players, status }: ScoreboardProps) {
@@ -34,6 +38,7 @@ export default function Scoreboard({ players, status }: ScoreboardProps) {
               background: p.isYou ? "#1a1a1b" : "transparent",
               borderRadius: 4,
               border: p.isYou ? "1px solid #3a3a3c" : "1px solid transparent",
+              opacity: p.status === "disconnected" ? 0.45 : p.status === "waiting" ? 0.7 : 1,
             }}
           >
             <span style={{ color: "#ffffff", fontSize: 14, fontWeight: p.isYou ? 700 : 400 }}>

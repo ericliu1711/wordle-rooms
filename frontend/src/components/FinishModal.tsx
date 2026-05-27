@@ -17,7 +17,7 @@ export default function FinishModal({
   myPlayer, roomStatus, players, ranking, target,
   youAreHost, onNextRound, onDismiss, nextRoundLoading,
 }: FinishModalProps) {
-  const stillPlaying = players.filter((p) => p.status === "playing");
+  const stillPlaying = players.filter((p) => p.status === "playing" && !p.isYou);
   const isFinished = roomStatus === "finished";
 
   const resultLine =
@@ -96,8 +96,8 @@ export default function FinishModal({
                       {entry.name}
                       {isYouEntry && <span style={{ color: "#818384", fontWeight: 400, fontSize: 12, marginLeft: 4 }}>(you)</span>}
                     </span>
-                    <span style={{ color: entry.status === "solved" ? "#538d4e" : "#b59f3b", fontSize: 13, fontWeight: 600 }}>
-                      {entry.status === "solved" ? `${entry.guessCount} guess${entry.guessCount !== 1 ? "es" : ""}` : "Out"}
+                    <span style={{ color: entry.status === "solved" ? "#538d4e" : (entry.status === "disconnected" || entry.status === "waiting") ? "#3a3a3c" : "#b59f3b", fontSize: 13, fontWeight: 600 }}>
+                      {entry.status === "solved" ? `${entry.guessCount} guess${entry.guessCount !== 1 ? "es" : ""}` : entry.status === "disconnected" ? "Left" : entry.status === "waiting" ? "Waiting" : "Out"}
                     </span>
                   </div>
                 );
@@ -115,6 +115,10 @@ export default function FinishModal({
                     <><CheckIcon size={12} color="#538d4e" />{p.guessCount}</>
                   ) : p.status === "out" ? (
                     <CrossIcon size={12} color="#b59f3b" />
+                  ) : p.status === "disconnected" ? (
+                    <span style={{ color: "#3a3a3c", fontSize: 11 }}>Away</span>
+                  ) : p.status === "waiting" ? (
+                    <span style={{ color: "#818384", fontSize: 11 }}>Waiting</span>
                   ) : (
                     `${p.guessCount} guesses`
                   )}
