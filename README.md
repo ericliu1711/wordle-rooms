@@ -4,9 +4,9 @@ Multiplayer Wordle with real-time rooms — create a room, share a code, everyon
 
 ## Demo
 
-> Add a screenshot at `docs/screenshot.png` before publishing.
->
-> Live demo: _deploy URL here_
+<!-- TODO: add docs/screenshot.png before publishing -->
+
+Live demo: _deploy URL here_
 
 ## What it does
 
@@ -28,6 +28,8 @@ flowchart LR
 ```
 
 HTTP carries all mutations (create room, join, submit guess, start round). WebSocket carries only outbound notifications — the server pushes a fresh `room_state` snapshot to every connected client after each mutation. Room state itself lives in server memory; Postgres stores only the word lists.
+
+When a player disconnects, a 15-second grace period allows them to reconnect before the server finalises the drop. If the departing player is the host, `migrateHost` automatically transfers host status to the next-oldest active player; the next WS broadcast notifies all clients of the change.
 
 ## Tech stack
 
@@ -86,9 +88,7 @@ See [DECISIONS.md](DECISIONS.md) for design rationale and trade-offs — why Go 
 
 These are deliberate trade-offs, not overlooked bugs:
 
-- **No host disconnect handling** — if the host leaves mid-game, the room becomes inert. Other players can keep guessing but no one can start the next round. Host migration or a `host_left` broadcast is tracked in [FOLLOWUPS.md](FOLLOWUPS.md).
 - **Rooms live in server memory** — a restart wipes all active games. Durability would require Redis or Postgres-backed room state; the added complexity isn't justified for short-lived games (see [DECISIONS.md](DECISIONS.md)).
-- **No room TTL** — abandoned rooms accumulate until the server restarts. A TTL sweeping goroutine is straightforward to add and is documented in [FOLLOWUPS.md](FOLLOWUPS.md).
 - **Single-server only** — WebSocket connections are pinned to one process. Horizontal scaling would require a Redis pub/sub fan-out layer.
 - **No mid-round join** — players must join before the host starts. A late-joiner path (empty board, same target) is possible but deferred.
 

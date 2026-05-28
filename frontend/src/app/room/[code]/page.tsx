@@ -85,6 +85,22 @@ export default function RoomPage() {
     }
   }, [room?.startedAt]);
 
+  // Host promotion toast — fires when youAreHost flips false → true mid-session.
+  const [showHostPromoted, setShowHostPromoted] = useState(false);
+  const prevYouAreHost = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (room === null) return;
+    const wasHost = prevYouAreHost.current;
+    const isHost = room.youAreHost;
+    prevYouAreHost.current = isHost;
+    // Only fire after the first render (wasHost !== null) and only on false → true.
+    if (wasHost === false && isHost === true) {
+      setShowHostPromoted(true);
+      const t = setTimeout(() => setShowHostPromoted(false), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [room]);
+
   // ---- derived state --------------------------------------------------------
 
   const myPlayer: RoomPlayer | undefined = room?.players.find((p) => p.isYou);
@@ -281,6 +297,7 @@ export default function RoomPage() {
         <Header onBack={handleBack} />
         <ReconnectingBanner show={isReconnecting} />
         <HostAwayBanner show={!isReconnecting && (room?.players.find(p => p.isHost)?.status === "disconnected") === true} />
+        <HostPromotedBanner show={showHostPromoted} />
         {showLeaveConfirm && <LeaveConfirmModal onLeave={handleLeaveConfirmed} onStay={() => setShowLeaveConfirm(false)} />}
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 24, width: "100%", maxWidth: 400 }}>
           <div style={{ textAlign: "center" }}>
@@ -345,6 +362,7 @@ export default function RoomPage() {
     <main style={pageStyle}>
       <Header onBack={handleBack} />
       <ReconnectingBanner show={isReconnecting} />
+      <HostPromotedBanner show={showHostPromoted} />
       {showLeaveConfirm && <LeaveConfirmModal onLeave={handleLeaveConfirmed} onStay={() => setShowLeaveConfirm(false)} />}
 
       {showModal && myPlayer && (
@@ -481,6 +499,21 @@ function ReconnectingBanner({ show }: { show: boolean }) {
       zIndex: 100,
     }}>
       RECONNECTING…
+    </div>
+  );
+}
+
+function HostPromotedBanner({ show }: { show: boolean }) {
+  if (!show) return null;
+  return (
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0,
+      background: "#538d4e", color: "#ffffff",
+      textAlign: "center", padding: "8px 16px",
+      fontWeight: 700, fontSize: 13, letterSpacing: 1,
+      zIndex: 100,
+    }}>
+      YOU ARE NOW THE HOST
     </div>
   );
 }

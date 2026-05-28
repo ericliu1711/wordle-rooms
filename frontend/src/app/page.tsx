@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ApiError, createRoom, joinRoom } from "@/lib/api";
 import { setRoomToken } from "@/lib/tokens";
+import { useWakeUpGuard } from "@/lib/useWakeUpGuard";
+import { WakeUpOverlay } from "@/components/WakeUpOverlay";
 
 type Panel = "none" | "create" | "join";
 
@@ -14,6 +16,7 @@ export default function LandingPage() {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { phase, guard, retry } = useWakeUpGuard();
 
   function openPanel(p: Panel) {
     setPanel(p);
@@ -28,7 +31,7 @@ export default function LandingPage() {
     if (!name.trim()) { setError("Please enter your name."); return; }
     setLoading(true);
     try {
-      const res = await createRoom(name.trim());
+      const res = await guard(() => createRoom(name.trim()));
       setRoomToken(res.code, res.playerToken);
       router.push(`/room/${res.code}`);
     } catch (err) {
@@ -51,7 +54,7 @@ export default function LandingPage() {
     setLoading(true);
     try {
       const upperCode = code.trim().toUpperCase();
-      const res = await joinRoom(upperCode, name.trim());
+      const res = await guard(() => joinRoom(upperCode, name.trim()));
       setRoomToken(upperCode, res.playerToken);
       router.push(`/room/${upperCode}`);
     } catch (err) {
@@ -70,6 +73,8 @@ export default function LandingPage() {
   }
 
   return (
+    <>
+    <WakeUpOverlay phase={phase} onRetry={retry} />
     <main style={{ minHeight: "100vh", background: "#121213", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <h1 style={{ color: "#ffffff", fontSize: 36, fontWeight: 700, letterSpacing: 6, marginBottom: 8 }}>
         WORDLE
@@ -141,6 +146,7 @@ export default function LandingPage() {
         </form>
       )}
     </main>
+    </>
   );
 }
 

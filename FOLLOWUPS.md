@@ -13,20 +13,24 @@
 **What:** The `RoomStore` uses a single global `sync.RWMutex`. All room operations serialize through it. Fine for low concurrent room counts; becomes a bottleneck if many rooms are active simultaneously.  
 **Fix:** Replace with per-room mutexes — a `sync.Map` of individual mutexes keyed by room code.
 
-## FU-3 — Room TTL / cleanup goroutine
+## ~~FU-3 — Room TTL / cleanup goroutine~~ ✅ Done
 
-**Source:** `backend/internal/room/store.go`  
-**What:** Rooms live in memory until the server restarts. There is no cleanup of idle or finished rooms. On a long-running server this is a memory leak.  
-**Fix:** Add a TTL sweeping goroutine that removes rooms not touched in N hours.
+Implemented in `room/store.go`: `LastTouchedAt` on `Room`, updated on every mutation. `StartSweeper(ctx, 10m, 1h)` runs a background goroutine that evicts rooms idle for more than 1 hour, ticking every 10 minutes. Wired in `main.go`.
 
 ## FU-4 — Single-player game memory leak
 
 **Source:** `backend/internal/game/store.go`  
-**What:** `game.Store` has the same TTL problem — games accumulate until restart.  
-**Fix:** Same TTL sweeping approach as FU-3.
+**What:** `game.Store` has the same TTL problem as FU-3 — games accumulate until restart.  
+**Fix:** Same TTL sweeping approach: `LastTouchedAt` field + a sweeper goroutine.
 
 ## FU-5 — Sharded hub registry lock
 
 **Source:** `backend/internal/realtime/registry.go`  
 **What:** The `HubRegistry` uses a single `sync.Mutex`. If many rooms connect simultaneously the registry mutex becomes contended.  
 **Fix:** Shard the registry into N buckets, each with its own lock, keyed by `hash(roomCode) % N`.
+
+## FU-6 — Host migration has no frontend notification
+
+**Source:** `frontend/src/app/room/[code]/page.tsx`  
+**What:** When `migrateHost` fires server-side, the `youAreHost` flag flips to `true` in the WS broadcast. The new host's Start/Next Round buttons appear correctly, but there is no explicit notification to the player that they have been promoted.  
+**Status:** A toast "You are now the host." has been added in this pass (C7). Consider also adding a banner for the lobby state if the host disconnects before the round starts.

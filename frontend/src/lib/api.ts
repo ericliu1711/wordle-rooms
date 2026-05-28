@@ -1,4 +1,16 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const _apiUrl = process.env.NEXT_PUBLIC_API_URL;
+
+// Fail loudly on first import if the backend URL is missing or still points
+// to localhost in a production build. This surfaces a Vercel misconfiguration
+// immediately rather than letting requests silently hit the user's machine.
+if (process.env.NODE_ENV === "production" && (!_apiUrl || _apiUrl.includes("localhost"))) {
+  throw new Error(
+    "NEXT_PUBLIC_API_URL must be set to your Render backend URL in production. " +
+    "Add it to your Vercel environment variables."
+  );
+}
+
+const BASE = _apiUrl ?? "http://localhost:8080";
 export const WS_BASE = BASE.replace(/^http/, "ws"); // http→ws, https→wss
 
 // ---- single-player types ----------------------------------------------------
@@ -156,4 +168,13 @@ export function leaveRoom(code: string, token: string): Promise<void> {
     method: "POST",
     headers: withToken(token),
   });
+}
+
+export async function checkHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE}/api/health`);
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

@@ -82,6 +82,8 @@ Architecture and trade-off notes for anyone reading this cold — interviewer, f
 
 **Reasoning:** Session cookies require either a server-side session store (adds infrastructure) or signed cookies (adds key management). JWTs are stateless but add a signature-verification step and a dependency. An opaque random token stored in a map is simpler: validity is checked by a single `map` lookup. The token has no expiry and no signature — it's a secret capability token (possession = authorisation). The trade-off is that token rotation and revocation are not supported, which is fine for short-lived game sessions.
 
+**Token placement for WebSocket:** The token is sent as `X-Player-Token` on all HTTP mutations, but the WebSocket upgrade passes it as a URL query parameter (`?token=…`). This is not a design choice — it's a browser constraint. The `WebSocket` constructor in browsers does not accept custom headers; only the URL can be controlled from JavaScript. Passing the token in the URL means it appears in server access logs. This is an accepted trade-off: the token is already a short-lived, room-scoped capability with no other privileges, and log access is restricted to the service operator.
+
 ---
 
 ### Spoiler-hiding enforced in a single `PlayerView` builder
