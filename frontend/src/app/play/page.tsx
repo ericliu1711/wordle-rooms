@@ -131,6 +131,7 @@ export default function PlayPage() {
       </div>
 
       <Game
+        key={gameState.gameId}
         instanceKey={gameState.gameId}
         length={gameState.length}
         maxGuesses={gameState.maxGuesses}
