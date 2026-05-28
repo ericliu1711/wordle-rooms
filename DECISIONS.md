@@ -50,17 +50,17 @@ Architecture and trade-off notes for anyone reading this cold — interviewer, f
 
 **Alternatives considered:** Return `*Room` to callers; callers build their own views.
 
-**Reasoning:** Returning a raw pointer means callers read the struct outside the lock, which is a data race under the Go memory model — `Room.Players` is an unsynchronised `map[string]*Player`. During a Phase 5 audit this was identified as the most serious bug in the codebase. The fix was to have all view construction happen inside the lock, so callers receive immutable value types. The pattern is slightly more coupling (the store knows about `PlayerView`) but the safety guarantee is worth it.
+**Reasoning:** Returning a raw pointer means callers read the struct outside the lock, which is a data race under the Go memory model — `Room.Players` is an unsynchronised `map[string]*Player`. During a concurrency audit this was identified as the most serious bug in the codebase. The fix was to have all view construction happen inside the lock, so callers receive immutable value types. The pattern is slightly more coupling (the store knows about `PlayerView`) but the safety guarantee is worth it.
 
 ---
 
 ### HTTP polling first, then WebSockets
 
-**Choice:** The project was built in phases: Phases 2–3 used polling (`getGame`/`getRoom` on interval); Phase 5 replaced polling with WebSockets.
+**Choice:** Polling first (`getGame`/`getRoom` on interval), then replaced with WebSockets once the HTTP layer was stable.
 
 **Alternatives considered:** WebSockets from day one.
 
-**Reasoning:** Polling first kept the Phase 2–4 surface small and fully testable with `httptest`. It de-risked the HTTP layer before adding WebSocket complexity. By the time Phase 5 started, the HTTP contract was stable and the WS layer could be added without touching any existing handler logic. The trade-off is that the polling code was thrown away, but it was never complex and the architecture didn't need to change.
+**Reasoning:** Polling first kept the initial surface small and fully testable with `httptest`. It de-risked the HTTP layer before adding WebSocket complexity. Once the HTTP contract was stable, the WS layer was added without touching any existing handler logic. The trade-off is that the polling code was thrown away, but it was never complex and the architecture didn't need to change.
 
 ---
 

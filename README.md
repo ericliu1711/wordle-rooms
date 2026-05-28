@@ -1,12 +1,14 @@
 # Wordle Rooms
 
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-wordle--rooms.vercel.app-brightgreen)](https://wordle-rooms.vercel.app)
+
 Multiplayer Wordle with real-time rooms — create a room, share a code, everyone plays the same word simultaneously, live scoreboard updates as guesses come in.
 
 ## Demo
 
 **Live demo:** https://wordle-rooms.vercel.app
-
-<!-- TODO: add docs/screenshot.png -->
 
 ## What it does
 
@@ -46,12 +48,13 @@ When a player disconnects, a 15-second grace period allows them to reconnect bef
 
 ## Running locally
 
-Prerequisites: Go 1.22+, Node 22+, pnpm, Docker.
+Prerequisites: Go 1.26+, Node 22+, pnpm, Docker.
 
 ```bash
-make up        # start Postgres in Docker
-make backend   # start Go API on :8080 (second terminal)
-make frontend  # start Next.js dev server on :3000 (third terminal)
+cp .env.example .env          # fill in DATABASE_URL if using a remote Postgres
+make up                       # start Postgres in Docker
+make backend                  # start Go API on :8080 (second terminal)
+make frontend                 # start Next.js dev server on :3000 (third terminal)
 ```
 
 Visit [http://localhost:3000](http://localhost:3000).
@@ -80,12 +83,13 @@ wordle-rooms/
 ├── Makefile
 ├── .env.example
 ├── DECISIONS.md           # design rationale and trade-offs
+├── FOLLOWUPS.md           # tracked technical debt and deferred items
 └── LICENSE
 ```
 
 ## Design notes
 
-See [DECISIONS.md](DECISIONS.md) for design rationale and trade-offs — why Go over Node, why HTTP+WS split, why in-memory state, and more.
+See [DECISIONS.md](DECISIONS.md) for design rationale and trade-offs — why Go over Node, why HTTP+WS split, why in-memory state, and more. [FOLLOWUPS.md](FOLLOWUPS.md) tracks known trade-offs and deferred improvements.
 
 ## Deployment
 

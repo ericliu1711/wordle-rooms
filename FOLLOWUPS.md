@@ -33,7 +33,7 @@ Implemented in `room/store.go`: `LastTouchedAt` on `Room`, updated on every muta
 
 **Source:** `frontend/src/app/room/[code]/page.tsx`  
 **What:** When `migrateHost` fires server-side, the `youAreHost` flag flips to `true` in the WS broadcast. The new host's Start/Next Round buttons appear correctly, but there is no explicit notification to the player that they have been promoted.  
-**Status:** A toast "You are now the host." has been added in this pass (C7). Consider also adding a banner for the lobby state if the host disconnects before the round starts.
+**Status:** A toast "You are now the host." has been added. Consider also adding a banner for the lobby state if the host disconnects before the round starts.
 
 ## FU-7 — No backend preview deployments
 
