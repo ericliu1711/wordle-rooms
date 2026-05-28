@@ -34,3 +34,15 @@ Implemented in `room/store.go`: `LastTouchedAt` on `Room`, updated on every muta
 **Source:** `frontend/src/app/room/[code]/page.tsx`  
 **What:** When `migrateHost` fires server-side, the `youAreHost` flag flips to `true` in the WS broadcast. The new host's Start/Next Round buttons appear correctly, but there is no explicit notification to the player that they have been promoted.  
 **Status:** A toast "You are now the host." has been added in this pass (C7). Consider also adding a banner for the lobby state if the host disconnects before the round starts.
+
+## FU-7 — No backend preview deployments
+
+**Source:** `render.yaml`  
+**What:** Vercel creates a preview deployment per PR for the frontend. Render free tier has no equivalent — there is only one service. Backend changes can't be previewed in isolation; the PR preview frontend always hits the production backend.  
+**Fix:** Requires a paid Render plan (preview environments) or a separate staging service wired to a staging branch.
+
+## FU-8 — Cold start cannot be fully eliminated on free tier
+
+**Source:** Render free tier behaviour  
+**What:** The wake-up overlay in D1 mitigates the cold-start UX impact, but the underlying delay (30–60 seconds after 15 minutes idle) remains. The overlay is a band-aid, not a fix.  
+**Fix:** Upgrade to a paid Render plan (always-on), or add a scheduled ping (e.g. cron hitting `/api/health` every 10 minutes) to prevent spin-down. The ping approach is free but burns request quota.

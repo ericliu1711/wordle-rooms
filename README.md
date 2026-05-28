@@ -4,9 +4,9 @@ Multiplayer Wordle with real-time rooms — create a room, share a code, everyon
 
 ## Demo
 
-<!-- TODO: add docs/screenshot.png before publishing -->
+**Live demo:** https://wordle-rooms.vercel.app
 
-Live demo: _deploy URL here_
+<!-- TODO: add docs/screenshot.png -->
 
 ## What it does
 
@@ -33,13 +33,16 @@ When a player disconnects, a 15-second grace period allows them to reconnect bef
 
 ## Tech stack
 
-- **Go 1.22** — backend; fast compilation, strong stdlib concurrency primitives, single binary deploy
+- **Go 1.26** — backend; fast compilation, strong stdlib concurrency primitives, single binary deploy
 - **chi** — lightweight HTTP router; minimal surface area compared to full frameworks
 - **gorilla/websocket** — WebSocket server; handles ping/pong and connection lifecycle
-- **Postgres** — stores the answer list and valid-guess dictionary; seeded on startup
+- **Neon (Postgres)** — stores the answer list and valid-guess dictionary; seeded on startup
 - **In-memory room store** — rooms live in a `sync.RWMutex`-guarded map; no persistence needed for short-lived games
 - **Next.js 16 + TypeScript** — frontend; App Router, `"use client"` components, no extra state library
 - **Tailwind CSS** — utility classes used sparingly; most layout is inline `React.CSSProperties`
+- **Docker** — multi-stage build (golang:1.26-alpine → distroless:nonroot) for the backend image
+- **Render** — hosts the Go backend (free tier, Docker deploy)
+- **Vercel** — hosts the Next.js frontend (free tier, GitHub-native previews)
 
 ## Running locally
 
@@ -83,6 +86,10 @@ wordle-rooms/
 ## Design notes
 
 See [DECISIONS.md](DECISIONS.md) for design rationale and trade-offs — why Go over Node, why HTTP+WS split, why in-memory state, and more.
+
+## Deployment
+
+The Go backend is deployed as a Docker image on Render's free tier and connects to a Neon Postgres instance for the word lists. The Next.js frontend is on Vercel with `NEXT_PUBLIC_API_URL` pointing at the Render service. Render free tier spins down after 15 minutes of inactivity, so the first request after idle may take 30–60 seconds to respond — the frontend shows a wake-up overlay during this time. No paid infrastructure required.
 
 ## Known limitations
 

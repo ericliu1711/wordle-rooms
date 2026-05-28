@@ -17,23 +17,23 @@ export function WakeUpOverlay({ phase, onRetry }: WakeUpOverlayProps) {
         <div style={boxStyle}>
           {phase === "overlay" ? (
             <>
-              <p style={headingStyle}>Server is waking up</p>
+              <p style={headingStyle}>Waking up the server</p>
               <p style={bodyStyle}>
-                The server spins down after 15 minutes of inactivity — a
-                deliberate trade-off on the free tier. It will be ready
-                in a moment.
+                This is a hobby project on a free tier, so the server
+                goes to sleep after sitting idle for a bit. Give it a
+                moment.
               </p>
               <span style={dotsStyle}>...</span>
             </>
           ) : (
             <>
-              <p style={headingStyle}>Taking longer than expected</p>
+              <p style={headingStyle}>Still not responding</p>
               <p style={bodyStyle}>
-                The server has not responded in 90 seconds. Check your
-                connection or try again.
+                90 seconds and nothing. Could be a bad connection, or
+                the server is having a rough morning. Worth a try.
               </p>
               <button onClick={onRetry} style={retryBtnStyle}>
-                Retry
+                Try again
               </button>
             </>
           )}

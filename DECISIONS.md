@@ -108,10 +108,16 @@ Architecture and trade-off notes for anyone reading this cold — interviewer, f
 
 ## What I'd build next, and why
 
-1. **Room TTL sweeping goroutine** — A background goroutine that removes rooms not touched in N hours would fix the memory leak in long-running deployments. It's a `time.Ticker` + a `LastTouchedAt` timestamp on each room. Unlocks production viability.
+1. **Redis fan-out for horizontal scaling** — Replace in-memory room state with Redis hashes + pub/sub. Each server instance subscribes to its rooms' channels; broadcasts fan out via Redis. Unlocks multi-instance deploys behind a load balancer.
 
-2. **Host disconnect handling** — When the host's WebSocket closes, broadcast a `host_left` event and either transfer host to the next-oldest player or close the room gracefully. Without this, orphaned rooms trap non-host players indefinitely.
+2. **Per-room mutex** — Replace the single global `sync.RWMutex` with per-room locks (`sync.Map` of `*sync.RWMutex`). Eliminates the serialisation bottleneck when many rooms are active simultaneously. Low effort, high reward once room counts grow.
 
-3. **Redis fan-out for horizontal scaling** — Replace in-memory room state with Redis hashes + pub/sub. Each server instance subscribes to its rooms' channels; broadcasts fan out via Redis. Unlocks multi-instance deploys behind a load balancer.
+---
 
-4. **Per-room mutex** — Replace the single global `sync.RWMutex` with per-room locks (`sync.Map` of `*sync.RWMutex`). Eliminates the serialisation bottleneck when many rooms are active simultaneously. Low effort, high reward once room counts grow.
+## Deployment choices
+
+**Render (free tier)** — Docker support, persistent WebSocket connections, and zero cost. The trade-off is a cold-start delay (30–60 seconds) after 15 minutes of inactivity. The frontend handles this with a wake-up overlay. A paid Render plan eliminates the cold start; the code needs no changes.
+
+**Neon (Postgres)** — Free managed Postgres with generous storage limits and a native `pgx`-compatible connection string. No wrapper or ORM needed. Requires `sslmode=require` in the connection string, which is enforced in `.env.example`.
+
+**Vercel (Next.js)** — Zero-config Next.js hosting with GitHub-native preview deployments per PR. `NEXT_PUBLIC_API_URL` is the only environment variable the frontend needs, set once in the Vercel dashboard.

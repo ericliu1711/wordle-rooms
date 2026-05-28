@@ -2,11 +2,11 @@
 
 ## Phase 4 deferred items
 
-### Host disconnect detection
-Still deferred. Phase 5 added WebSocket presence (we now know when a client's socket closes), but we deliberately did not act on host disconnects. Open design questions: room dies, longest-standing player migrates to host, or grace period with reconnect. Defer to V2.
+### ~~Host disconnect detection~~ ✅ Done
+`migrateHost` transfers host status to the next-oldest active player when the host's WebSocket closes. A 15-second grace period allows reconnect before finalising the drop. Frontend shows a "you are now the host" toast when `youAreHost` flips true mid-session.
 
-### Room TTL / cleanup
-Rooms live in memory until the server restarts. There is no cleanup of idle or finished rooms. On a long-running server this is a memory leak. Fix in V2: add a TTL sweeping goroutine that removes rooms not touched in N hours.
+### ~~Room TTL / cleanup~~ ✅ Done
+`StartSweeper(ctx, 10m, 1h)` runs a background goroutine that evicts rooms idle for more than 1 hour, ticking every 10 minutes. `LastTouchedAt` is updated on every mutation.
 
 ### Per-room mutex
 The RoomStore uses a single global `sync.RWMutex`. All room operations are serialised through it. This is fine for low concurrent room counts but becomes a bottleneck if many rooms are active simultaneously. Fix in V2: replace with per-room mutexes (a `sync.Map` of individual mutexes keyed by room code).
