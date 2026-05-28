@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: wordle-rooms-api
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: oregon
+    healthCheckPath: /api/health
+    envVars:
+      # Set these in the Render dashboard — do not commit values here.
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      # Enables JSON structured logging and production guards.
+      - key: APP_ENV
+        value: production

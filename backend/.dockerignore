@@ -1,0 +1,22 @@
+# Build artifacts
+bin/
+*.test
+*.out
+coverage.out
+
+# Environment files — never bake secrets into the image
+.env
+.env.*
+
+# Version control
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docs (not needed at runtime)
+*.md
