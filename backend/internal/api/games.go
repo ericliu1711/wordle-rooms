@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/placeholder/wordle-rooms/internal/game"
+	"github.com/ericliu1711/wordle-rooms/internal/game"
 )
 
 type handler struct {
@@ -57,7 +57,7 @@ func buildResp(snap game.Snapshot) gameResp {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v) //nolint:errcheck
+	json.NewEncoder(w).Encode(v) //nolint:errcheck,gosec
 }
 
 func writeErr(w http.ResponseWriter, status int, msg, code string) {

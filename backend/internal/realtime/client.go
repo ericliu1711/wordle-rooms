@@ -31,7 +31,7 @@ type Client struct {
 func (c *Client) close() {
 	c.once.Do(func() {
 		c.hub.Unregister(c)
-		c.conn.Close()
+		c.conn.Close() //nolint:errcheck,gosec // best-effort cleanup; connection may already be broken
 		c.registry.OnClientDisconnect(c.roomCode, c.token)
 		c.registry.CleanupIfEmpty(c.roomCode)
 	})
@@ -46,9 +46,9 @@ func (c *Client) ReadPump() {
 	defer c.close()
 
 	c.conn.SetReadLimit(maxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))  //nolint:errcheck,gosec // failure means conn is broken; next read surfaces the error
 	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		c.conn.SetReadDeadline(time.Now().Add(pongWait)) //nolint:errcheck,gosec
 		return nil
 	})
 
@@ -78,17 +78,17 @@ func (c *Client) WritePump() {
 	for {
 		select {
 		case msg, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait)) //nolint:errcheck,gosec // failure surfaces on next write
 			if !ok {
 				// send channel was closed by the backpressure eviction path.
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{}) //nolint:errcheck
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{}) //nolint:errcheck,gosec
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				return
 			}
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait)) //nolint:errcheck,gosec
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

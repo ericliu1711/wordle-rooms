@@ -7,13 +7,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
-	"github.com/placeholder/wordle-rooms/internal/game"
-	"github.com/placeholder/wordle-rooms/internal/realtime"
-	"github.com/placeholder/wordle-rooms/internal/room"
+	"github.com/ericliu1711/wordle-rooms/internal/game"
+	"github.com/ericliu1711/wordle-rooms/internal/realtime"
+	"github.com/ericliu1711/wordle-rooms/internal/room"
 )
 
 func NewRouter(gameStore *game.Store, roomStore *room.Store, registry *realtime.HubRegistry) http.Handler {
@@ -24,6 +25,7 @@ func NewRouter(gameStore *game.Store, roomStore *room.Store, registry *realtime.
 
 	r := chi.NewRouter()
 
+	r.Use(recoverer)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: []string{corsOrigin},
 		AllowedMethods: []string{"GET", "POST", "OPTIONS"},
@@ -49,7 +51,7 @@ func NewRouter(gameStore *game.Store, roomStore *room.Store, registry *realtime.
 	r.Post("/api/rooms/{code}/leave", rh.leaveRoom)
 
 	// WebSocket upgrade (Phase 5)
-	wh := &realtimeHandler{registry: registry, rooms: roomStore}
+	wh := newRealtimeHandler(registry, roomStore, corsOrigin)
 	r.Get("/api/rooms/{code}/ws", wh.wsUpgrade)
 
 	r.Get("/api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +66,13 @@ func requestLogger(next http.Handler) http.Handler {
 		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		start := time.Now()
 		next.ServeHTTP(rw, r)
-		slog.Info("request",
+		// Health-check probes (Render hits this every few seconds) are logged
+		// at Debug to avoid drowning out real traffic in production logs.
+		logFn := slog.Info
+		if r.URL.Path == "/api/health" {
+			logFn = slog.Debug
+		}
+		logFn("request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", rw.status,
@@ -91,4 +99,16 @@ func (sr *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 		return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
 	}
 	return h.Hijack()
+}
+
+func recoverer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rc := recover(); rc != nil {
+				slog.Error("handler panic", "err", rc, "stack", string(debug.Stack()))
+				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }

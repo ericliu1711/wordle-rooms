@@ -9,15 +9,19 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/placeholder/wordle-rooms/internal/api"
-	"github.com/placeholder/wordle-rooms/internal/db"
-	"github.com/placeholder/wordle-rooms/internal/game"
-	"github.com/placeholder/wordle-rooms/internal/realtime"
-	"github.com/placeholder/wordle-rooms/internal/room"
-	"github.com/placeholder/wordle-rooms/internal/words"
+	"github.com/ericliu1711/wordle-rooms/internal/api"
+	"github.com/ericliu1711/wordle-rooms/internal/db"
+	"github.com/ericliu1711/wordle-rooms/internal/game"
+	"github.com/ericliu1711/wordle-rooms/internal/realtime"
+	"github.com/ericliu1711/wordle-rooms/internal/room"
+	"github.com/ericliu1711/wordle-rooms/internal/words"
 )
 
 func main() {
+	if os.Getenv("APP_ENV") == "production" {
+		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -48,12 +52,15 @@ func main() {
 
 	gameStore := game.NewStore(wordsRepo)
 	roomStore := room.NewStore(wordsRepo)
-	realtimeRegistry := realtime.NewHubRegistry(roomStore)
+	roomStore.StartSweeper(ctx, 10*time.Minute, 1*time.Hour)
+	realtimeRegistry := realtime.NewHubRegistry(ctx, roomStore)
 	router := api.NewRouter(gameStore, roomStore, realtimeRegistry)
 
 	srv := &http.Server{
-		Addr:    ":" + port,
-		Handler: router,
+		Addr:              ":" + port,
+		Handler:           router,
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	stop := make(chan os.Signal, 1)
@@ -72,6 +79,11 @@ func main() {
 
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutCancel()
+
+	// Close WebSocket connections cleanly before stopping HTTP.
+	wsCtx, wsCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer wsCancel()
+	realtimeRegistry.Shutdown(wsCtx)
 
 	if err := srv.Shutdown(shutCtx); err != nil {
 		slog.Error("shutdown error", "err", err)

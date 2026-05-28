@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/placeholder/wordle-rooms/internal/game"
+	"github.com/ericliu1711/wordle-rooms/internal/game"
 )
 
 func TestPlayerView_SpoilerHiding(t *testing.T) {

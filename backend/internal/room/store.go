@@ -2,11 +2,12 @@ package room
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/placeholder/wordle-rooms/internal/game"
+	"github.com/ericliu1711/wordle-rooms/internal/game"
 )
 
 // wordRepo is the subset of words.Repository used by the room store.
@@ -77,13 +78,14 @@ func (s *Store) Create(ctx context.Context, hostName string) (PlayerViewResponse
 	}
 
 	r := &Room{
-		Code:       code,
-		HostToken:  hostToken,
-		Status:     StatusLobby,
-		Length:     5,
-		MaxGuesses: 6,
-		Players:    map[string]*Player{hostToken: player},
-		CreatedAt:  now,
+		Code:          code,
+		HostToken:     hostToken,
+		Status:        StatusLobby,
+		Length:        5,
+		MaxGuesses:    6,
+		Players:       map[string]*Player{hostToken: player},
+		CreatedAt:     now,
+		LastTouchedAt: now,
 	}
 	s.rooms[code] = r
 	return PlayerView(r, hostToken), hostToken, nil
@@ -150,6 +152,7 @@ func (s *Store) Join(ctx context.Context, code, name string) (PlayerViewResponse
 		Guesses:  []game.ScoredGuess{},
 		Status:   PlayerPlaying,
 	}
+	touch(r)
 	return PlayerView(r, token), token, nil
 }
 
@@ -190,6 +193,7 @@ func (s *Store) StartRound(ctx context.Context, code, token string) (PlayerViewR
 		}
 		p.SolvedAt = nil
 	}
+	touch(r)
 	return PlayerView(r, token), nil
 }
 
@@ -246,7 +250,7 @@ func (s *Store) SubmitGuess(ctx context.Context, code, token, guess string) (Pla
 	}
 
 	s.checkAllDone(r)
-
+	touch(r)
 	return PlayerView(r, token), nil
 }
 
@@ -284,6 +288,7 @@ func (s *Store) NextRound(ctx context.Context, code, token string) (PlayerViewRe
 		}
 		p.SolvedAt = nil
 	}
+	touch(r)
 	return PlayerView(r, token), nil
 }
 
@@ -314,6 +319,7 @@ func (s *Store) Leave(code, token string) error {
 		s.migrateHost(r)
 	}
 	s.checkAllDone(r)
+	touch(r)
 	return nil
 }
 
@@ -445,7 +451,7 @@ func validateName(name string) error {
 		if c != ' ' {
 			hasNonSpace = true
 		}
-		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == ' ') {
+		if !((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == ' ') { //nolint:staticcheck // QF1001: whitelist form is intentionally more readable
 			return ErrInvalidName
 		}
 	}
@@ -462,4 +468,39 @@ func isAlpha(s string) bool {
 		}
 	}
 	return true
+}
+
+// touch updates LastTouchedAt on r. Must be called under the write lock.
+func touch(r *Room) {
+	r.LastTouchedAt = time.Now()
+}
+
+// StartSweeper launches a background goroutine that removes rooms idle for
+// longer than idleTimeout. It ticks every tickInterval and exits when ctx is
+// cancelled. Call once from main after the store is constructed.
+func (s *Store) StartSweeper(ctx context.Context, tickInterval, idleTimeout time.Duration) {
+	go func() {
+		ticker := time.NewTicker(tickInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				s.sweepIdle(idleTimeout)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+func (s *Store) sweepIdle(idleTimeout time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for code, r := range s.rooms {
+		if now.Sub(r.LastTouchedAt) > idleTimeout {
+			delete(s.rooms, code)
+			slog.Info("room evicted (idle)", "room", code)
+		}
+	}
 }

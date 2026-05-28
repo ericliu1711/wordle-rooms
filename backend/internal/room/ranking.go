@@ -77,7 +77,7 @@ func bestRowScore(p *Player) int {
 	for _, g := range p.Guesses {
 		score := 0
 		for _, s := range g.Scoring {
-			if s == "green" {
+			if s == "green" { //nolint:staticcheck // QF1003: if-chain is clearer than tagged switch here
 				score += 2
 			} else if s == "yellow" {
 				score += 1

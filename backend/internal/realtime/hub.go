@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/placeholder/wordle-rooms/internal/room"
+	"github.com/ericliu1711/wordle-rooms/internal/room"
 )
 
 // Hub manages all WebSocket clients connected to a single room.

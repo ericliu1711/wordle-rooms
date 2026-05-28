@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/placeholder/wordle-rooms/internal/api"
-	"github.com/placeholder/wordle-rooms/internal/game"
-	"github.com/placeholder/wordle-rooms/internal/realtime"
-	"github.com/placeholder/wordle-rooms/internal/room"
+	"github.com/ericliu1711/wordle-rooms/internal/api"
+	"github.com/ericliu1711/wordle-rooms/internal/game"
+	"github.com/ericliu1711/wordle-rooms/internal/realtime"
+	"github.com/ericliu1711/wordle-rooms/internal/room"
 )
 
 // ---- stub word repository ---------------------------------------------------
@@ -52,7 +52,7 @@ func newRouter(t *testing.T) http.Handler {
 	w := newStub()
 	gameStore := game.NewStore(w)
 	roomStore := room.NewStore(w)
-	registry := realtime.NewHubRegistry(roomStore)
+	registry := realtime.NewHubRegistry(context.Background(), roomStore)
 	return api.NewRouter(gameStore, roomStore, registry)
 }
 
@@ -74,7 +74,7 @@ func do(t *testing.T, router http.Handler, method, path, token, body string) (in
 	router.ServeHTTP(rr, req)
 
 	var result map[string]any
-	json.Unmarshal(rr.Body.Bytes(), &result) //nolint:errcheck
+	json.Unmarshal(rr.Body.Bytes(), &result) //nolint:errcheck,gosec
 	return rr.Code, result
 }
 

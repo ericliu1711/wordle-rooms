@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/placeholder/wordle-rooms/internal/game"
-	"github.com/placeholder/wordle-rooms/internal/realtime"
-	"github.com/placeholder/wordle-rooms/internal/room"
+	"github.com/ericliu1711/wordle-rooms/internal/game"
+	"github.com/ericliu1711/wordle-rooms/internal/realtime"
+	"github.com/ericliu1711/wordle-rooms/internal/room"
 )
 
 type roomHandler struct {

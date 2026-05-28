@@ -1,4 +1,4 @@
-module github.com/placeholder/wordle-rooms
+module github.com/ericliu1711/wordle-rooms
 
 go 1.26.3
 

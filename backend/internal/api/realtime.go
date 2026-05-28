@@ -4,34 +4,34 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/websocket"
-	"github.com/placeholder/wordle-rooms/internal/realtime"
-	"github.com/placeholder/wordle-rooms/internal/room"
+	"github.com/ericliu1711/wordle-rooms/internal/realtime"
+	"github.com/ericliu1711/wordle-rooms/internal/room"
 )
-
-// wsUpgrader is created once at package init from the CORS_ORIGIN env var.
-// Production should use a strict allowlist; the default covers local development.
-var wsUpgrader = func() websocket.Upgrader {
-	allowed := os.Getenv("CORS_ORIGIN")
-	if allowed == "" {
-		allowed = "http://localhost:3000"
-	}
-	return websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool {
-			return r.Header.Get("Origin") == allowed
-		},
-	}
-}()
 
 type realtimeHandler struct {
 	registry *realtime.HubRegistry
 	rooms    *room.Store
+	upgrader websocket.Upgrader
+}
+
+// newRealtimeHandler creates the handler with a WS upgrader that allows only
+// the given origin. The origin value comes from NewRouter (single read site).
+func newRealtimeHandler(registry *realtime.HubRegistry, rooms *room.Store, allowedOrigin string) *realtimeHandler {
+	return &realtimeHandler{
+		registry: registry,
+		rooms:    rooms,
+		upgrader: websocket.Upgrader{
+			ReadBufferSize:  1024,
+			WriteBufferSize: 1024,
+			CheckOrigin: func(r *http.Request) bool {
+				return r.Header.Get("Origin") == allowedOrigin
+			},
+		},
+	}
 }
 
 func (h *realtimeHandler) wsUpgrade(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +52,7 @@ func (h *realtimeHandler) wsUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		// upgrader already wrote the HTTP error; just log.
 		slog.Warn("ws upgrade failed", "room", code, "err", err)

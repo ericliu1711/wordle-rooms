@@ -1,12 +1,13 @@
 package realtime
 
 import (
+	"context"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/placeholder/wordle-rooms/internal/room"
+	"github.com/ericliu1711/wordle-rooms/internal/room"
 )
 
 // HubRegistry lazily creates and cleans up Hubs keyed by room code.
@@ -16,13 +17,16 @@ type HubRegistry struct {
 	mu    sync.Mutex
 	hubs  map[string]*Hub
 	rooms *room.Store
+	ctx   context.Context // cancelled on server shutdown; stops grace goroutines
+	wg    sync.WaitGroup  // tracks in-flight grace-period goroutines
 }
 
-func NewHubRegistry(rooms *room.Store) *HubRegistry {
+func NewHubRegistry(ctx context.Context, rooms *room.Store) *HubRegistry {
 	slog.Info("realtime registry initialized")
 	return &HubRegistry{
 		hubs:  make(map[string]*Hub),
 		rooms: rooms,
+		ctx:   ctx,
 	}
 }
 
@@ -90,17 +94,24 @@ func (r *HubRegistry) Connect(conn *websocket.Conn, token, roomCode string) {
 
 // OnClientDisconnect marks the player disconnected immediately and schedules
 // a FinalizeDisconnect call after the 15-second grace period.
+// The goroutine exits early if the server is shutting down.
 func (r *HubRegistry) OnClientDisconnect(roomCode, token string) {
 	changed, _ := r.rooms.MarkPlayerDisconnected(roomCode, token)
 	if changed {
 		r.BroadcastRoom(roomCode)
 	}
 
+	r.wg.Add(1)
 	go func() {
-		time.Sleep(15 * time.Second)
-		changed, _ := r.rooms.FinalizeDisconnect(roomCode, token)
-		if changed {
-			r.BroadcastRoom(roomCode)
+		defer r.wg.Done()
+		select {
+		case <-time.After(15 * time.Second):
+			changed, _ := r.rooms.FinalizeDisconnect(roomCode, token)
+			if changed {
+				r.BroadcastRoom(roomCode)
+			}
+		case <-r.ctx.Done():
+			// Server shutting down — skip finalization.
 		}
 	}()
 }
@@ -110,5 +121,38 @@ func (r *HubRegistry) OnClientReconnect(roomCode, token string) {
 	changed, _ := r.rooms.MarkPlayerReconnected(roomCode, token)
 	if changed {
 		r.BroadcastRoom(roomCode)
+	}
+}
+
+// Shutdown closes every connected client's send channel, causing each
+// WritePump to emit a clean WebSocket close frame before returning.
+// It also waits for in-flight grace-period goroutines (which exit early
+// because the registry ctx is already cancelled by the time Shutdown runs).
+// Blocks until all work finishes or ctx is done.
+func (r *HubRegistry) Shutdown(ctx context.Context) {
+	r.mu.Lock()
+	var clients []*Client
+	for _, h := range r.hubs {
+		h.mu.Lock()
+		for c := range h.clients {
+			clients = append(clients, c)
+		}
+		h.mu.Unlock()
+	}
+	r.mu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		for _, c := range clients {
+			c.close()
+		}
+		r.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		slog.Warn("realtime shutdown timed out", "remaining", len(clients))
 	}
 }
